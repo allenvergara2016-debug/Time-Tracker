@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import RequestsManager from '@/components/dashboard/RequestsManager';
 import { exportToCSV, exportToExcel, exportToPDF, ReportItem } from '@/lib/export';
+import { formatPHTime, getPHDateString } from '@/lib/ph-time';
 import {
   Users,
   MapPin,
@@ -25,6 +26,8 @@ import {
   Trash2,
   FileText,
   DollarSign,
+  Edit2,
+  Edit,
 } from 'lucide-react';
 import DTRViewer from '@/components/reports/DTRViewer';
 import {
@@ -63,6 +66,18 @@ export default function AdminDashboardPage() {
   const [empRole, setEmpRole] = useState<'employee' | 'admin'>('employee');
   const [empError, setEmpError] = useState('');
 
+  // Edit Employee Modal
+  const [editingEmp, setEditingEmp] = useState<Profile | null>(null);
+  const [editFullName, setEditFullName] = useState('');
+  const [editDeptId, setEditDeptId] = useState('');
+  const [editShiftId, setEditShiftId] = useState('');
+  const [editDailyRate, setEditDailyRate] = useState('');
+  const [editOvertimeRate, setEditOvertimeRate] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editRole, setEditRole] = useState<'employee' | 'admin'>('employee');
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [editError, setEditError] = useState('');
+
   // New Shift Modal
   const [showAddShiftModal, setShowAddShiftModal] = useState(false);
   const [shiftName, setShiftName] = useState('');
@@ -75,7 +90,7 @@ export default function AdminDashboardPage() {
   const [shiftError, setShiftError] = useState('');
 
   useEffect(() => {
-    setSelectedDate(new Date().toISOString().split('T')[0]);
+    setSelectedDate(getPHDateString());
   }, []);
   const [selectedDept, setSelectedDept] = useState('');
   const [counts, setCounts] = useState({
@@ -193,6 +208,53 @@ export default function AdminDashboardPage() {
       }
     } catch (err: unknown) {
       setEmpError(err instanceof Error ? err.message : 'Error creating account');
+    }
+  };
+
+  // Open Edit Employee Modal
+  const handleOpenEditEmp = (emp: Profile) => {
+    setEditingEmp(emp);
+    setEditFullName(emp.full_name);
+    setEditDeptId(emp.department_id || '');
+    setEditShiftId(emp.shift_id || '');
+    setEditDailyRate((emp.daily_rate || 0).toString());
+    setEditOvertimeRate((emp.overtime_rate_per_hour || 0).toString());
+    setEditPhone(emp.phone || '');
+    setEditRole(emp.role);
+    setEditIsActive(emp.is_active !== false);
+    setEditError('');
+  };
+
+  const handleSaveEditEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEmp) return;
+    setEditError('');
+
+    try {
+      const res = await fetch(`/api/admin/employees/${editingEmp.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: editFullName,
+          department_id: editDeptId || null,
+          shift_id: editShiftId || null,
+          daily_rate: Number(editDailyRate) || 0,
+          overtime_rate_per_hour: Number(editOvertimeRate) || 0,
+          phone: editPhone || null,
+          role: editRole,
+          is_active: editIsActive,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setEditError(data.error || 'Failed to update employee');
+      } else {
+        setEditingEmp(null);
+        loadAllEntities();
+      }
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Error updating employee profile');
     }
   };
 
@@ -318,8 +380,8 @@ export default function AdminDashboardPage() {
       date: l.date,
       employee_name: l.profile?.full_name || 'Unknown',
       department: l.profile?.department_id || 'General',
-      time_in: l.time_in ? new Date(l.time_in).toLocaleTimeString() : '-',
-      time_out: l.time_out ? new Date(l.time_out).toLocaleTimeString() : '-',
+      time_in: l.time_in ? formatPHTime(l.time_in) : '-',
+      time_out: l.time_out ? formatPHTime(l.time_out) : '-',
       hours_worked: l.hours_worked || 0,
       late_minutes: l.late_minutes || 0,
       overtime_minutes: l.overtime_minutes || 0,
@@ -586,9 +648,9 @@ export default function AdminDashboardPage() {
                         {attendanceLogs.map((log) => (
                           <tr key={log.id} className="hover:bg-slate-800/30">
                             <td className="py-3 font-medium text-white">{log.profile?.full_name || 'Employee'}</td>
-                            <td className="py-3 text-slate-300">{new Date(log.time_in).toLocaleTimeString()}</td>
+                            <td className="py-3 text-slate-300">{formatPHTime(log.time_in)}</td>
                             <td className="py-3 text-slate-300">
-                              {log.time_out ? new Date(log.time_out).toLocaleTimeString() : '--'}
+                              {log.time_out ? formatPHTime(log.time_out) : '--'}
                             </td>
                             <td className="py-3 font-mono text-slate-300">{log.hours_worked || '--'}</td>
                             <td className="py-3">
@@ -692,27 +754,42 @@ export default function AdminDashboardPage() {
                           )}
                         </td>
                         <td className="py-3 text-slate-400">
-                          <span className="text-blue-400">Active</span>
+                          {emp.is_active === false ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-950 text-rose-300">
+                              Inactive
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-950 text-emerald-300">
+                              Active
+                            </span>
+                          )}
                         </td>
                         <td className="py-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleOpenEditEmp(emp)}
+                              className="p-1 hover:text-blue-400 text-slate-400"
+                              title="Edit Employee Profile"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={() => handleResetPassword(emp.id)}
-                              className="p-1 hover:text-amber-400"
+                              className="p-1 hover:text-amber-400 text-slate-400"
                               title="Reset Password"
                             >
                               <Key className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleResetDevice(emp.id)}
-                              className="p-1 hover:text-blue-400"
+                              className="p-1 hover:text-purple-400 text-slate-400"
                               title="Reset Bound Phone"
                             >
                               <Smartphone className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleResetPasskey(emp.id)}
-                              className="p-1 hover:text-rose-400"
+                              className="p-1 hover:text-rose-400 text-slate-400"
                               title="Reset Fingerprint Passkey"
                             >
                               <ShieldAlert className="w-4 h-4" />
@@ -861,7 +938,7 @@ export default function AdminDashboardPage() {
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-rose-400 uppercase">{fa.attempt_type}</span>
                             <span className="text-slate-400">
-                              {new Date(fa.created_at).toLocaleTimeString()}
+                              {formatPHTime(fa.created_at)}
                             </span>
                           </div>
                           <p className="text-rose-200 mt-1 font-medium">{fa.reason}</p>
@@ -1194,6 +1271,146 @@ export default function AdminDashboardPage() {
                   className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold"
                 >
                   Save Shift
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Employee Modal */}
+      {editingEmp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl my-8">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-bold text-base text-white">Edit Employee Profile</h3>
+              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
+                {editingEmp.email}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mb-4">
+              Update employee information, work shift assignment, and wage compensation.
+            </p>
+
+            <form onSubmit={handleSaveEditEmployee} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-300 mb-1 font-medium">Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Department</label>
+                  <select
+                    value={editDeptId}
+                    onChange={(e) => setEditDeptId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  >
+                    <option value="">None / Unassigned</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Work Shift</label>
+                  <select
+                    value={editShiftId}
+                    onChange={(e) => setEditShiftId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  >
+                    <option value="">None / Default</option>
+                    {shifts.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)}-{s.end_time.slice(0, 5)})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Daily Rate (₱) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editDailyRate}
+                    onChange={(e) => setEditDailyRate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">OT Rate (₱/hr) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editOvertimeRate}
+                    onChange={(e) => setEditOvertimeRate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Phone / WhatsApp</label>
+                  <input
+                    type="text"
+                    placeholder="+63 9..."
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Role</label>
+                  <select
+                    value={editRole}
+                    onChange={(e) => setEditRole(e.target.value as 'employee' | 'admin')}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  >
+                    <option value="employee">Employee</option>
+                    <option value="admin">Administrator</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+                <div>
+                  <span className="font-semibold text-white block">Account Active</span>
+                  <span className="text-[11px] text-slate-400">If deactivated, employee cannot sign in or tap attendance</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={editIsActive}
+                  onChange={(e) => setEditIsActive(e.target.checked)}
+                  className="w-4 h-4 accent-blue-600 rounded"
+                />
+              </div>
+
+              {editError && <p className="text-rose-400 text-[11px]">{editError}</p>}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingEmp(null)}
+                  className="flex-1 py-2 bg-slate-800 text-slate-300 rounded-xl font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-md"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>

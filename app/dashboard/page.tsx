@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { getPHDateString, formatPHTime } from '@/lib/ph-time';
 import TimeTapButton from '@/components/dashboard/TimeTapButton';
 import BreakButton from '@/components/dashboard/BreakButton';
 import FirstLoginSetup from '@/components/auth/FirstLoginSetup';
@@ -61,8 +62,8 @@ export default function EmployeeDashboardPage() {
 
       if (prof) setProfile(prof as Profile);
 
-      // 2. Fetch today's log
-      const todayStr = new Date().toISOString().split('T')[0];
+      // 2. Fetch today's log in Philippine Standard Time
+      const todayStr = getPHDateString();
       const { data: log } = await supabase
         .from('attendance_logs')
         .select('*, breaks(*)')
@@ -232,10 +233,10 @@ export default function EmployeeDashboardPage() {
             {/* Live Clock Card */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm text-center">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-                {currentTime ? currentTime.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }) : '...'}
+                {currentTime ? currentTime.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }) : '...'} (Philippine Time)
               </span>
               <div className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white my-1 tracking-tight font-mono">
-                {currentTime ? currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--'}
+                {currentTime ? currentTime.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : '--:--:--'}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1.5 mt-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-500" />
@@ -259,16 +260,14 @@ export default function EmployeeDashboardPage() {
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
                   <span className="text-[11px] text-slate-500 font-medium">Time In</span>
                   <div className="text-base font-bold text-slate-900 dark:text-white mt-1">
-                    {new Date(todayLog.time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formatPHTime(todayLog.time_in)}
                   </div>
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
                   <span className="text-[11px] text-slate-500 font-medium">Time Out</span>
                   <div className="text-base font-bold text-slate-900 dark:text-white mt-1">
-                    {todayLog.time_out
-                      ? new Date(todayLog.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      : '--:--'}
+                    {todayLog.time_out ? formatPHTime(todayLog.time_out) : '--:--'}
                   </div>
                 </div>
 
@@ -328,8 +327,7 @@ export default function EmployeeDashboardPage() {
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        In: {new Date(h.time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} •{' '}
-                        Out: {h.time_out ? new Date(h.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Pending'}
+                        In: {formatPHTime(h.time_in)} • Out: {h.time_out ? formatPHTime(h.time_out) : 'Pending'}
                       </p>
                       {h.late_minutes > 0 && (
                         <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">

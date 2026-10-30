@@ -15,7 +15,7 @@ export async function GET() {
 
     let query = adminClient
       .from('correction_requests')
-      .select('*, employee:profiles(id, full_name, email, department:departments(name)), reviewer:profiles!reviewed_by(full_name)')
+      .select('*, employee:profiles!correction_requests_employee_id_fkey(id, full_name, email, department:departments(name)), reviewer:profiles!correction_requests_reviewed_by_fkey(full_name)')
       .order('created_at', { ascending: false });
 
     if (!isAdmin) {

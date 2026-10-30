@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getPHDateString } from '@/lib/ph-time';
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,8 +14,8 @@ export async function POST(req: NextRequest) {
     const { action, attendance_id } = body; // action: 'break_in' | 'break_out'
 
     const adminClient = createAdminClient();
-    const today = new Date().toISOString().split('T')[0];
     const serverNow = new Date();
+    const today = getPHDateString(serverNow);
 
     // Verify user has active attendance log today
     let targetAttendanceId = attendance_id;

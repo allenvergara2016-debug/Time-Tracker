@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Printer, Download, Calendar, DollarSign, Clock, Users, User, ArrowRight } from 'lucide-react';
-import { EmployeeDTR } from '@/app/api/reports/dtr/route';
+import { Printer, Download, Calendar, DollarSign, Clock, Users, User, ArrowRight, Edit, Plus } from 'lucide-react';
+import { EmployeeDTR, DTRDayRecord } from '@/app/api/reports/dtr/route';
 
 interface Props {
   isAdmin?: boolean;
@@ -24,6 +24,23 @@ export default function DTRViewer({ isAdmin = false }: Props) {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('all');
   const [dtrList, setDtrList] = useState<EmployeeDTR[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Edit DTR Record Modal state
+  const [editingDay, setEditingDay] = useState<{
+    employeeId: string;
+    employeeName: string;
+    day: DTRDayRecord;
+  } | null>(null);
+  const [editTimeIn, setEditTimeIn] = useState('');
+  const [editBreakStart, setEditBreakStart] = useState('');
+  const [editBreakEnd, setEditBreakEnd] = useState('');
+  const [editTimeOut, setEditTimeOut] = useState('');
+  const [editLateMins, setEditLateMins] = useState('0');
+  const [editUnderMins, setEditUnderMins] = useState('0');
+  const [editOtMins, setEditOtMins] = useState('0');
+  const [editStatus, setEditStatus] = useState('present');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
   // Quick Cutoff Presets
   const setCutoff = (preset: 'first_half' | 'second_half' | 'full_month' | 'last_month') => {
@@ -75,6 +92,74 @@ export default function DTRViewer({ isAdmin = false }: Props) {
   useEffect(() => {
     fetchDTR();
   }, [startDate, endDate, selectedEmployeeId]);
+
+  // Open edit modal for a day
+  const handleOpenEditDTR = (employeeId: string, employeeName: string, day: DTRDayRecord) => {
+    // Helper to extract 24hr "HH:mm" from string or return empty
+    const to24Hr = (str: string | null) => {
+      if (!str || str === '-') return '';
+      // If already in 12hr e.g. "07:00 AM"
+      const match = str.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+      if (match) {
+        let h = parseInt(match[1]);
+        const m = match[2];
+        const ampm = match[3]?.toUpperCase();
+        if (ampm === 'PM' && h < 12) h += 12;
+        if (ampm === 'AM' && h === 12) h = 0;
+        return `${String(h).padStart(2, '0')}:${m}`;
+      }
+      return str.slice(0, 5);
+    };
+
+    setEditingDay({ employeeId, employeeName, day });
+    setEditTimeIn(to24Hr(day.timeIn));
+    setEditBreakStart(to24Hr(day.breakStart) || '12:00');
+    setEditBreakEnd(to24Hr(day.breakEnd) || '13:00');
+    setEditTimeOut(to24Hr(day.timeOut));
+    setEditLateMins(day.lateMinutes.toString());
+    setEditUnderMins(day.undertimeMinutes.toString());
+    setEditOtMins(day.overtimeMinutes.toString());
+    setEditStatus(day.status || 'present');
+    setEditError('');
+  };
+
+  const handleSaveDTR = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDay) return;
+    setEditSaving(true);
+    setEditError('');
+
+    try {
+      const res = await fetch('/api/admin/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employee_id: editingDay.employeeId,
+          date: editingDay.day.date,
+          time_in: editTimeIn || null,
+          time_out: editTimeOut || null,
+          break_start: editBreakStart || null,
+          break_end: editBreakEnd || null,
+          late_minutes: Number(editLateMins) || 0,
+          undertime_minutes: Number(editUnderMins) || 0,
+          overtime_minutes: Number(editOtMins) || 0,
+          status: editStatus,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setEditError(data.error || 'Failed to update attendance record');
+      } else {
+        setEditingDay(null);
+        fetchDTR();
+      }
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Error updating attendance');
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   // Export to Excel (.xlsx)
   const handleExportExcel = () => {
@@ -302,6 +387,7 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                       <th colSpan={2} className="border-r border-slate-300 py-1 bg-amber-50">Overtime</th>
                       <th colSpan={2} className="border-r border-slate-300 py-1">Tardiness</th>
                       <th rowSpan={2} className="py-2 px-2 bg-emerald-50">Daily Wage (₱)</th>
+                      {isAdmin && <th rowSpan={2} className="py-2 px-1 print:hidden w-12 text-slate-500 font-medium">Action</th>}
                     </tr>
                     <tr className="border-b border-slate-800 bg-slate-50 text-[10px] text-slate-600">
                       <th className="border-r border-slate-300 py-1 px-1">Arrival</th>
@@ -347,6 +433,17 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                         <td className="py-1 px-2 font-mono font-semibold text-emerald-800 bg-emerald-50/30">
                           {d.totalDailyWage > 0 ? `₱${d.totalDailyWage.toFixed(2)}` : '-'}
                         </td>
+                        {isAdmin && (
+                          <td className="py-1 px-1 print:hidden border-l border-slate-200">
+                            <button
+                              onClick={() => handleOpenEditDTR(dtr.employee.id, dtr.employee.fullName, d)}
+                              className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                              title="Edit Day Record"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -372,6 +469,7 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                       <td className="py-2 px-2 bg-emerald-100 text-emerald-950 font-black text-sm">
                         ₱{dtr.totals.totalGrossPay.toFixed(2)}
                       </td>
+                      {isAdmin && <td className="print:hidden"></td>}
                     </tr>
                   </tfoot>
                 </table>
@@ -433,6 +531,141 @@ export default function DTRViewer({ isAdmin = false }: Props) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Admin Edit DTR Day Modal */}
+      {editingDay && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl my-8">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                Edit DTR Entry
+              </h3>
+              <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 font-bold">
+                Day {editingDay.day.day} • {editingDay.day.date}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+              Adjust attendance log, scheduled break, or overtime for <b>{editingDay.employeeName}</b>.
+            </p>
+
+            <form onSubmit={handleSaveDTR} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-medium">Time In</label>
+                  <input
+                    type="time"
+                    value={editTimeIn}
+                    onChange={(e) => setEditTimeIn(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-medium">Time Out</label>
+                  <input
+                    type="time"
+                    value={editTimeOut}
+                    onChange={(e) => setEditTimeOut(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
+                <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider block mb-2">
+                  Meal / Rest Break Schedule
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-slate-500 mb-1 text-[11px]">Break Start</label>
+                    <input
+                      type="time"
+                      value={editBreakStart}
+                      onChange={(e) => setEditBreakStart(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 mb-1 text-[11px]">Break End</label>
+                    <input
+                      type="time"
+                      value={editBreakEnd}
+                      onChange={(e) => setEditBreakEnd(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-medium">Late (mins)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editLateMins}
+                    onChange={(e) => setEditLateMins(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-medium">Under (mins)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editUnderMins}
+                    onChange={(e) => setEditUnderMins(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-medium">OT (mins)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editOtMins}
+                    onChange={(e) => setEditOtMins(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1 font-medium">Status</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                >
+                  <option value="present">Present</option>
+                  <option value="late">Late</option>
+                  <option value="completed">Completed Shift</option>
+                  <option value="on_leave">On Leave</option>
+                  <option value="absent">Absent</option>
+                </select>
+              </div>
+
+              {editError && <p className="text-rose-500 text-[11px]">{editError}</p>}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingDay(null)}
+                  className="flex-1 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSaving}
+                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-semibold shadow-md"
+                >
+                  {editSaving ? 'Saving...' : 'Update Record'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { checkGeofence } from '@/lib/geofence';
 import { getWebAuthnConfig, base64UrlToBuffer } from '@/lib/webauthn';
+import { getPHDateString, parseShiftToPHDate, formatPHTime } from '@/lib/ph-time';
 import { VerificationMethod, AttendanceStatus } from '@/types/database.types';
 
 export async function POST(req: NextRequest) {
@@ -280,22 +281,23 @@ export async function POST(req: NextRequest) {
       flagReason = 'Logged via fallback password without fingerprint passkey.';
     }
 
+    // 8. Server Clock Time & Shift Calculation in Philippine Standard Time
+    const serverNow = new Date();
+    const serverTimestamp = serverNow.toISOString();
+    const today = getPHDateString(serverNow);
+
     // Check failed attempts today
-    const today = new Date().toISOString().split('T')[0];
     const { count: failedCount } = await adminClient
       .from('failed_attempts')
       .select('*', { count: 'exact', head: true })
       .eq('employee_id', user.id)
-      .gte('created_at', `${today}T00:00:00Z`);
+      .gte('created_at', `${today}T00:00:00+08:00`);
 
     if ((failedCount ?? 0) >= 3) {
       isFlagged = true;
       flagReason = (flagReason ? flagReason + ' ' : '') + `Multiple failed attempts recorded today (${failedCount}).`;
     }
 
-    // 8. Server Clock Time & Shift Calculation
-    const serverNow = new Date();
-    const serverTimestamp = serverNow.toISOString();
     const shift = profile.shift;
 
     if (action === 'time_in') {
@@ -311,15 +313,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Already timed in today! Tap TIME OUT to conclude your shift.' }, { status: 400 });
       }
 
-      // Calculate late minutes
+      // Calculate late minutes in Philippine Time
       let lateMinutes = 0;
       let status: AttendanceStatus = 'present';
 
       if (shift && shift.start_time) {
-        const [shiftHour, shiftMin] = shift.start_time.split(':').map(Number);
-        const shiftStart = new Date(serverNow);
-        shiftStart.setHours(shiftHour, shiftMin, 0, 0);
-
+        const shiftStart = parseShiftToPHDate(shift.start_time, today);
         const graceMinutes = shift.grace_period_mins ?? 15;
         const graceDeadline = new Date(shiftStart.getTime() + graceMinutes * 60 * 1000);
 
@@ -387,14 +386,12 @@ export async function POST(req: NextRequest) {
       const timeInDate = new Date(activeLog.time_in);
       const totalHours = Math.max(0, (serverNow.getTime() - timeInDate.getTime()) / (1000 * 60 * 60));
 
-      // Calculate undertime or overtime
+      // Calculate undertime or overtime in Philippine Time
       let undertimeMinutes = 0;
       let overtimeMinutes = 0;
 
       if (shift && shift.end_time) {
-        const [endHour, endMin] = shift.end_time.split(':').map(Number);
-        const shiftEnd = new Date(serverNow);
-        shiftEnd.setHours(endHour, endMin, 0, 0);
+        const shiftEnd = parseShiftToPHDate(shift.end_time, today);
 
         if (serverNow < shiftEnd) {
           undertimeMinutes = Math.round((shiftEnd.getTime() - serverNow.getTime()) / (60 * 1000));

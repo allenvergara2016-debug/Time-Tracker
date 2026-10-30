@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { formatPHTime, parseShiftToPHDate } from '@/lib/ph-time';
 
 export interface DTRDayRecord {
   day: number;
@@ -158,17 +159,17 @@ export async function GET(req: NextRequest) {
 
         if (log) {
           daysWorked++;
-          timeInStr = log.time_in ? new Date(log.time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-          timeOutStr = log.time_out ? new Date(log.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+          timeInStr = log.time_in ? formatPHTime(log.time_in) : null;
+          timeOutStr = log.time_out ? formatPHTime(log.time_out) : null;
 
           // Break records (or scheduled break default)
           const firstBreak = log.breaks?.[0];
           if (firstBreak) {
-            breakStartStr = firstBreak.break_start ? new Date(firstBreak.break_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-            breakEndStr = firstBreak.break_end ? new Date(firstBreak.break_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+            breakStartStr = firstBreak.break_start ? formatPHTime(firstBreak.break_start) : null;
+            breakEndStr = firstBreak.break_end ? formatPHTime(firstBreak.break_end) : null;
           } else if (emp.shift?.break_start && emp.shift?.break_end && log.time_in && log.time_out) {
-            breakStartStr = emp.shift.break_start.slice(0, 5);
-            breakEndStr = emp.shift.break_end.slice(0, 5);
+            breakStartStr = formatPHTime(parseShiftToPHDate(emp.shift.break_start, dateStr));
+            breakEndStr = formatPHTime(parseShiftToPHDate(emp.shift.break_end, dateStr));
           }
 
           const hoursWorked = log.hours_worked || 0;

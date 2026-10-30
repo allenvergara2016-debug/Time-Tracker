@@ -20,6 +20,8 @@ export default function RequestsManager({ isAdmin = false }: Props) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [leaveReason, setLeaveReason] = useState('');
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  const [leaveError, setLeaveError] = useState('');
 
   // New correction modal state
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
@@ -58,6 +60,8 @@ export default function RequestsManager({ isAdmin = false }: Props) {
   // Submit new leave
   const handleCreateLeave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLeaveSubmitting(true);
+    setLeaveError('');
     try {
       const res = await fetch('/api/requests/leave', {
         method: 'POST',
@@ -70,13 +74,20 @@ export default function RequestsManager({ isAdmin = false }: Props) {
         }),
       });
 
-      if (res.ok) {
+      const data = await res.json();
+      if (!res.ok) {
+        setLeaveError(data.error || 'Failed to file leave request');
+      } else {
         setShowLeaveModal(false);
         setLeaveReason('');
+        setStartDate('');
+        setEndDate('');
         loadRequests();
       }
-    } catch (e) {
-      console.error(e);
+    } catch (err: unknown) {
+      setLeaveError(err instanceof Error ? err.message : 'Error submitting leave request');
+    } finally {
+      setLeaveSubmitting(false);
     }
   };
 
@@ -342,6 +353,13 @@ export default function RequestsManager({ isAdmin = false }: Props) {
                 />
               </div>
 
+              {leaveError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-[11px] text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{leaveError}</span>
+                </div>
+              )}
+
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -352,9 +370,10 @@ export default function RequestsManager({ isAdmin = false }: Props) {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold"
+                  disabled={leaveSubmitting}
+                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-semibold shadow-md"
                 >
-                  Submit
+                  {leaveSubmitting ? 'Submitting...' : 'Submit'}
                 </button>
               </div>
             </form>
