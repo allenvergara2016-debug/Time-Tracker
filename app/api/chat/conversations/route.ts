@@ -27,6 +27,7 @@ export async function GET() {
           content,
           media_url,
           created_at,
+          sender_id,
           sender:profiles(id, full_name)
         )
       `)
@@ -51,10 +52,12 @@ export async function GET() {
       );
       const lastMessage = msgs[0] || null;
 
-      // Count unread
+      // Count unread: strictly messages from other users created after user's lastRead timestamp
       const unreadCount = (c.messages || []).filter(
-        (m: { created_at: string; sender_id?: string }) =>
-          new Date(m.created_at) > lastRead && m.sender_id !== user.id
+        (m: { created_at: string; sender_id?: string; sender?: { id: string } }) => {
+          const senderId = m.sender_id || m.sender?.id;
+          return new Date(m.created_at).getTime() > lastRead.getTime() && senderId !== user.id;
+        }
       ).length;
 
       return {

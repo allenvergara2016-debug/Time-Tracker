@@ -15,11 +15,27 @@ export async function POST(
 
     const adminClient = createAdminClient();
 
-    await adminClient
+    // Upsert member record with updated last_read_at timestamp
+    // This ensures even announcement channels (where members aren't pre-populated) record the read receipt!
+    const { error } = await adminClient
       .from('conversation_members')
-      .update({ last_read_at: new Date().toISOString() })
-      .eq('conversation_id', conversationId)
-      .eq('employee_id', user.id);
+      .upsert(
+        {
+          conversation_id: conversationId,
+          employee_id: user.id,
+          last_read_at: new Date().toISOString(),
+        },
+        { onConflict: 'conversation_id,employee_id' }
+      );
+
+    if (error) {
+      // Fallback: update if conflict resolution differs
+      await adminClient
+        .from('conversation_members')
+        .update({ last_read_at: new Date().toISOString() })
+        .eq('conversation_id', conversationId)
+        .eq('employee_id', user.id);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
@@ -27,4 +43,3 @@ export async function POST(
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

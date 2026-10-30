@@ -20,16 +20,23 @@ export async function GET(req: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    // Fetch existing credentials to exclude re-registering the same authenticator
-    const { data: existingPasskeys } = await supabase
-      .from('passkey_credentials')
-      .select('credential_id')
-      .eq('employee_id', user.id);
+    // Check if re-registering to allow overwriting / replacing existing passkey
+    const { searchParams } = new URL(req.url);
+    const isReRegister = searchParams.get('re_register') === 'true';
 
-    const excludeCredentials = (existingPasskeys || []).map((cred) => ({
-      id: cred.credential_id,
-      transports: ['internal'] as AuthenticatorTransport[],
-    }));
+    // Fetch existing credentials to exclude ONLY if not re-registering
+    let excludeCredentials: { id: string; transports: AuthenticatorTransport[] }[] = [];
+    if (!isReRegister) {
+      const { data: existingPasskeys } = await supabase
+        .from('passkey_credentials')
+        .select('credential_id')
+        .eq('employee_id', user.id);
+
+      excludeCredentials = (existingPasskeys || []).map((cred) => ({
+        id: cred.credential_id,
+        transports: ['internal'] as AuthenticatorTransport[],
+      }));
+    }
 
     const options = await generateRegistrationOptions({
       rpName,

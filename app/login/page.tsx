@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Lock, Mail, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
+import AppLogo from '@/components/ui/AppLogo';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -81,9 +82,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100 dark:bg-slate-950">
       <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-xl">
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center mb-3 shadow-lg shadow-blue-500/25">
-            <ShieldCheck className="w-8 h-8" />
-          </div>
+          <AppLogo size="lg" className="mb-3" />
           <h2 className="text-xl font-bold text-slate-900 dark:text-white">Time Tracker</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Biometric &amp; Geofenced Attendance

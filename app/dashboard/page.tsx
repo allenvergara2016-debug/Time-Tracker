@@ -431,7 +431,7 @@ export default function EmployeeDashboardPage() {
         {activeTab === 'requests' && <RequestsManager isAdmin={false} />}
 
         {/* TAB 4: CHAT */}
-        {activeTab === 'chat' && <ChatWindow currentUser={profile} />}
+        {activeTab === 'chat' && <ChatWindow currentUser={profile} onUnreadCountChange={setUnreadChatCount} />}
 
         {/* TAB 5: CONNECTED ACCOUNTS & SETTINGS */}
         {activeTab === 'profile' && (

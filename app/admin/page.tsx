@@ -33,6 +33,8 @@ import {
 } from 'lucide-react';
 import DTRViewer from '@/components/reports/DTRViewer';
 import ChatWindow from '@/components/chat/ChatWindow';
+import PasskeyManager from '@/components/auth/PasskeyManager';
+import AppLogo from '@/components/ui/AppLogo';
 import {
   Profile,
   Location,
@@ -492,9 +494,7 @@ export default function AdminDashboardPage() {
       {/* Top Admin Bar */}
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-6 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
-            TT
-          </div>
+          <AppLogo size="sm" />
           <div>
             <h1 className="text-sm font-bold text-white">Admin Command Center</h1>
             <p className="text-[11px] text-slate-400">Time Tracker & Biometrics</p>
@@ -977,7 +977,7 @@ export default function AdminDashboardPage() {
                     Broadcast corporate bulletins or chat directly with employees with real-time Messenger-style reactions.
                   </p>
                 </div>
-                <ChatWindow currentUser={currentUserProfile} />
+                <ChatWindow currentUser={currentUserProfile} onUnreadCountChange={setUnreadChatCount} />
               </div>
             </div>
           )}
@@ -1072,8 +1072,12 @@ export default function AdminDashboardPage() {
 
           {/* TAB 9: SETTINGS */}
           {activeTab === 'settings' && settings && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-xl">
-              <h3 className="font-bold text-base text-white mb-4">System Biometrics & Verification Rules</h3>
+            <div className="space-y-6 max-w-xl">
+              {/* Admin's Own Biometric Passkey */}
+              <PasskeyManager />
+
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                <h3 className="font-bold text-base text-white mb-4">System Biometrics &amp; Verification Rules</h3>
               <form onSubmit={handleSaveSettings} className="space-y-4 text-xs">
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1">
@@ -1146,6 +1150,7 @@ export default function AdminDashboardPage() {
                   Save Settings
                 </button>
               </form>
+            </div>
             </div>
           )}
         </main>
