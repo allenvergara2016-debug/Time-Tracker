@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { MessageSquare, Mail, Bell, ExternalLink, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { Profile, NotificationPreference } from '@/types/database.types';
+import PasskeyManager from '@/components/auth/PasskeyManager';
 
 interface Props {
   profile: Profile;
@@ -151,6 +152,9 @@ export default function ConnectedAccounts({ profile, preferences, onProfileUpdat
           <span>{message.text}</span>
         </div>
       )}
+
+      {/* Biometric Passkey / Fingerprint Re-registration for All Users */}
+      <PasskeyManager onUpdated={onProfileUpdated} />
 
       {/* 1. Connected Social & OAuth Logins */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">

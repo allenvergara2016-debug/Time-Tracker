@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="darkBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090d16" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="neonBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+  </defs>
+
+  <!-- Dark Obsidian Squircle -->
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#darkBg)" stroke="rgba(255, 255, 255, 0.1)" stroke-width="4" />
+
+  <!-- Track Circle -->
+  <circle cx="256" cy="256" r="130" fill="none" stroke="#1e293b" stroke-width="16" />
+
+  <!-- Active Glowing Arc -->
+  <path d="M 256 126 A 130 130 0 1 1 126 256" fill="none" stroke="url(#neonBlue)" stroke-width="18" stroke-linecap="round" />
+
+  <!-- Center Pivot -->
+  <circle cx="256" cy="256" r="12" fill="#ffffff" />
+  <!-- Minimal Hands -->
+  <line x1="256" y1="256" x2="256" y2="175" stroke="#ffffff" stroke-width="18" stroke-linecap="round" />
+  <line x1="256" y1="256" x2="330" y2="256" stroke="#ffffff" stroke-width="18" stroke-linecap="round" />
+
+  <!-- Biometric Waves -->
+  <path d="M 216 324 A 40 40 0 0 0 296 324" fill="none" stroke="#38bdf8" stroke-width="12" stroke-linecap="round" opacity="0.9" />
+  <path d="M 196 348 A 60 60 0 0 0 316 348" fill="none" stroke="#2563eb" stroke-width="12" stroke-linecap="round" opacity="0.6" />
+
+  <!-- Geofence Pin Dot -->
+  <circle cx="348" cy="164" r="14" fill="#38bdf8" />
+</svg>
+

@@ -8,9 +8,10 @@ import { Send, Image, Megaphone, Users, User, ArrowLeft, ShieldAlert, Smile, Hea
 
 interface Props {
   currentUser: Profile;
+  onUnreadCountChange?: (count: number) => void;
 }
 
-export default function ChatWindow({ currentUser }: Props) {
+export default function ChatWindow({ currentUser, onUnreadCountChange }: Props) {
   const supabase = createClient();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -22,8 +23,10 @@ export default function ChatWindow({ currentUser }: Props) {
   const [colleagues, setColleagues] = useState<Profile[]>([]);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [activeReactionPickerMsgId, setActiveReactionPickerMsgId] = useState<string | null>(null);
+  const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
 
   const EMOJI_LIST = ['👍', '❤️', '😂', '😮', '😢', '🔥', '👏'];
+  const INPUT_EMOJIS = ['😀', '😂', '😍', '😊', '👍', '🙏', '🔥', '🎉', '👏', '💪', '❤️', '💯', '✨', '✅', '😎', '🙌', '⭐', '👀', '💼', '🚀'];
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -37,9 +40,14 @@ export default function ChatWindow({ currentUser }: Props) {
       const res = await fetch('/api/chat/conversations');
       if (res.ok) {
         const data = await res.json();
-        setConversations(data.conversations || []);
-        if (!selectedConversation && data.conversations?.length > 0) {
-          setSelectedConversation(data.conversations[0]);
+        const convs: Conversation[] = data.conversations || [];
+        setConversations(convs);
+
+        const totalUnread = convs.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+        onUnreadCountChange?.(totalUnread);
+
+        if (!selectedConversation && convs.length > 0) {
+          setSelectedConversation(convs[0]);
         }
       }
     } catch (e) {
@@ -56,8 +64,16 @@ export default function ChatWindow({ currentUser }: Props) {
         setMessages(data.messages || []);
         scrollToBottom();
 
-        // Mark as read
+        // Mark as read immediately on server
         await fetch(`/api/chat/conversations/${convId}/read`, { method: 'POST' });
+
+        // Update local unreadCount so the notification dot clears instantly
+        setConversations((prev) => {
+          const updated = prev.map((c) => (c.id === convId ? { ...c, unreadCount: 0 } : c));
+          const total = updated.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+          onUnreadCountChange?.(total);
+          return updated;
+        });
       }
     } catch (e) {
       console.error(e);
@@ -131,9 +147,42 @@ export default function ChatWindow({ currentUser }: Props) {
     };
   }, [selectedConversation?.id]);
 
-  // Handle Emoji Reaction
+  // Handle Emoji Reaction with 0ms optimistic UI update for instant feedback on mobile
   const handleToggleReaction = async (messageId: string, emoji: string) => {
     setActiveReactionPickerMsgId(null);
+
+    // 1. Optimistic instant reaction update in client state
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id !== messageId) return msg;
+        const currentReactions = msg.reactions || [];
+        const existingIdx = currentReactions.findIndex(
+          (r) => r.emoji === emoji && r.user_id === currentUser.id
+        );
+
+        let updatedReactions: MessageReaction[];
+        if (existingIdx >= 0) {
+          // Remove reaction
+          updatedReactions = currentReactions.filter((_, idx) => idx !== existingIdx);
+        } else {
+          // Add reaction
+          updatedReactions = [
+            ...currentReactions,
+            {
+              id: `temp-${Date.now()}`,
+              message_id: messageId,
+              user_id: currentUser.id,
+              emoji,
+              created_at: new Date().toISOString(),
+              user: currentUser,
+            },
+          ];
+        }
+        return { ...msg, reactions: updatedReactions };
+      })
+    );
+
+    // 2. Dispatch to API
     try {
       const res = await fetch(`/api/chat/messages/${messageId}/react`, {
         method: 'POST',
@@ -146,6 +195,9 @@ export default function ChatWindow({ currentUser }: Props) {
       }
     } catch (e) {
       console.error(e);
+      if (selectedConversation) {
+        loadMessages(selectedConversation.id);
+      }
     }
   };
 
@@ -352,28 +404,78 @@ export default function ChatWindow({ currentUser }: Props) {
                       </div>
                     )}
 
-                    <div className="relative group">
-                      <div
-                        className={`max-w-[80%] min-w-[76px] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
-                          isMe
-                            ? 'bg-blue-600 text-white rounded-br-sm'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-bl-sm'
-                        }`}
-                      >
-                        {m.content && <p className="whitespace-pre-wrap">{m.content}</p>}
-                        {m.media_url && (
-                          <div className="mt-2 rounded-xl overflow-hidden max-w-xs">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={m.media_url} alt="Shared media" className="w-full h-auto" />
+                    <div className="relative group max-w-[85%]">
+                      {/* Messenger-style Emoji Picker Popup */}
+                      {activeReactionPickerMsgId === m.id && (
+                        <>
+                          {/* Invisible backdrop to dismiss picker when tapping outside on phone */}
+                          <div
+                            className="fixed inset-0 z-30"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveReactionPickerMsgId(null);
+                            }}
+                          />
+                          <div
+                            className={`absolute z-40 -top-12 ${
+                              isMe ? 'right-0' : 'left-0'
+                            } flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1 rounded-full shadow-2xl animate-in fade-in zoom-in-95 duration-100`}
+                          >
+                            {EMOJI_LIST.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleReaction(m.id, emoji);
+                                }}
+                                className="w-8 h-8 flex items-center justify-center text-lg hover:scale-130 active:scale-110 transition-transform rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
                           </div>
-                        )}
-                        <span
-                          className={`block text-[10px] mt-1 text-right whitespace-nowrap shrink-0 tabular-nums select-none ${
-                            isMe ? 'text-blue-200' : 'text-slate-400'
+                        </>
+                      )}
+
+                      {/* Message Bubble & Action Button */}
+                      <div className={`flex items-center gap-1.5 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <div
+                          onClick={() => setActiveReactionPickerMsgId(activeReactionPickerMsgId === m.id ? null : m.id)}
+                          className={`min-w-[76px] rounded-2xl px-4 py-2.5 text-sm shadow-sm cursor-pointer select-none transition active:opacity-90 ${
+                            isMe
+                              ? 'bg-blue-600 text-white rounded-br-sm'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-bl-sm'
                           }`}
                         >
-                          {formatPHTime(m.created_at)}
-                        </span>
+                          {m.content && <p className="whitespace-pre-wrap">{m.content}</p>}
+                          {m.media_url && (
+                            <div className="mt-2 rounded-xl overflow-hidden max-w-xs">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={m.media_url} alt="Shared media" className="w-full h-auto" />
+                            </div>
+                          )}
+                          <span
+                            className={`block text-[10px] mt-1 text-right whitespace-nowrap shrink-0 tabular-nums select-none ${
+                              isMe ? 'text-blue-200' : 'text-slate-400'
+                            }`}
+                          >
+                            {formatPHTime(m.created_at)}
+                          </span>
+                        </div>
+
+                        {/* Reaction Trigger Button (Visible on mobile touch and desktop hover) */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveReactionPickerMsgId(activeReactionPickerMsgId === m.id ? null : m.id);
+                          }}
+                          className="p-1.5 rounded-full text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition opacity-60 sm:opacity-0 group-hover:opacity-100 active:opacity-100 focus:opacity-100"
+                          title="React to message"
+                        >
+                          <Smile className="w-4 h-4" />
+                        </button>
                       </div>
 
                       {/* Display active reactions */}
@@ -392,8 +494,12 @@ export default function ChatWindow({ currentUser }: Props) {
                             return (
                               <button
                                 key={emoji}
-                                onClick={() => handleToggleReaction(m.id, emoji)}
-                                className={`px-2 py-0.5 rounded-full text-xs flex items-center gap-1 border shadow-xs transition ${
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleReaction(m.id, emoji);
+                                }}
+                                className={`px-2 py-0.5 rounded-full text-xs flex items-center gap-1 border shadow-xs transition active:scale-95 ${
                                   userReacted
                                     ? 'bg-blue-100 border-blue-400 text-blue-900 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300 font-bold'
                                     : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
@@ -406,34 +512,6 @@ export default function ChatWindow({ currentUser }: Props) {
                           })}
                         </div>
                       )}
-
-                      {/* Reaction trigger hover button */}
-                      <div className={`absolute top-0 ${isMe ? '-left-8' : '-right-8'} hidden group-hover:flex items-center`}>
-                        <button
-                          type="button"
-                          onClick={() => setActiveReactionPickerMsgId(activeReactionPickerMsgId === m.id ? null : m.id)}
-                          className="p-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-amber-500 shadow-sm transition"
-                          title="React to message"
-                        >
-                          <Smile className="w-3.5 h-3.5" />
-                        </button>
-
-                        {/* Messenger-style Emoji Picker Popup */}
-                        {activeReactionPickerMsgId === m.id && (
-                          <div className={`absolute z-30 -top-9 ${isMe ? 'right-0' : 'left-0'} flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-1.5 rounded-full shadow-xl animate-in fade-in zoom-in-95 duration-100`}>
-                            {EMOJI_LIST.map((emoji) => (
-                              <button
-                                key={emoji}
-                                type="button"
-                                onClick={() => handleToggleReaction(m.id, emoji)}
-                                className="w-7 h-7 flex items-center justify-center text-base hover:scale-130 transition-transform active:scale-95"
-                              >
-                                {emoji}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
                     </div>
                   </div>
                 );
@@ -443,38 +521,88 @@ export default function ChatWindow({ currentUser }: Props) {
 
             {/* Input area */}
             {canPostInCurrent ? (
-              <form
-                onSubmit={handleSendMessage}
-                className="p-3 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2"
-              >
-                <input
-                  type="text"
-                  placeholder="Type a message..."
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  className="flex-1 px-4 py-2.5 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+              <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                {/* Mobile & Desktop Emoji Keyboard Drawer */}
+                {showInputEmojiPicker && (
+                  <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Tap Emoji to Insert
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowInputEmojiPicker(false)}
+                        className="text-xs text-slate-400 hover:text-slate-600 font-semibold px-2 py-0.5"
+                      >
+                        Close ✕
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-10 gap-1.5 sm:gap-2">
+                      {INPUT_EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => {
+                            setInputText((prev) => prev + emoji);
+                          }}
+                          className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center text-lg sm:text-xl hover:scale-125 active:scale-110 transition-transform rounded-xl hover:bg-white dark:hover:bg-slate-800 shadow-xs"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    const url = prompt('Enter image URL to share:');
-                    if (url) setMediaUrl(url);
+                <form
+                  onSubmit={(e) => {
+                    setShowInputEmojiPicker(false);
+                    handleSendMessage(e);
                   }}
-                  className="p-2.5 text-slate-500 hover:text-blue-600 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                  title="Share Image"
+                  className="p-3 flex items-center gap-2"
                 >
-                  <Image className="w-5 h-5" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowInputEmojiPicker(!showInputEmojiPicker)}
+                    className={`p-2.5 rounded-xl transition ${
+                      showInputEmojiPicker
+                        ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
+                        : 'text-slate-500 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                    title="Insert emoji"
+                  >
+                    <Smile className="w-5 h-5" />
+                  </button>
 
-                <button
-                  type="submit"
-                  disabled={loading || (!inputText.trim() && !mediaUrl)}
-                  className="p-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl shadow-md transition"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
-              </form>
+                  <input
+                    type="text"
+                    placeholder="Type a message..."
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    className="flex-1 px-4 py-2.5 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = prompt('Enter image URL to share:');
+                      if (url) setMediaUrl(url);
+                    }}
+                    className="p-2.5 text-slate-500 hover:text-blue-600 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                    title="Share Image"
+                  >
+                    <Image className="w-5 h-5" />
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={loading || (!inputText.trim() && !mediaUrl)}
+                    className="p-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl shadow-md transition"
+                  >
+                    <Send className="w-5 h-5" />
+                  </button>
+                </form>
+              </div>
             ) : (
               <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 text-center text-xs text-slate-500 dark:text-slate-400 flex items-center justify-center gap-2">
                 <ShieldAlert className="w-4 h-4 text-amber-500" />
