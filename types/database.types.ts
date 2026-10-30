@@ -34,6 +34,7 @@ export interface Profile {
   is_active: boolean;
   must_change_password: boolean;
   consent_given: boolean;
+  is_super_admin?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -117,6 +118,7 @@ export interface AttendanceLog {
   updated_at: string;
   // joined fields
   profile?: Profile;
+  employee?: Profile;
   location_in?: Location;
   location_out?: Location;
 }
@@ -212,6 +214,15 @@ export interface Message {
   media_url: string | null;
   created_at: string;
   sender?: Profile;
+  reactions?: MessageReaction[];
+}
+
+export interface MessageReaction {
+  id?: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  user?: Profile;
 }
 
 export interface Holiday {

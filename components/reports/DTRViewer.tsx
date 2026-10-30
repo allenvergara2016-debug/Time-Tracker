@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Printer, Download, Calendar, DollarSign, Clock, Users, User, ArrowRight, Edit, Plus } from 'lucide-react';
 import { EmployeeDTR, DTRDayRecord } from '@/app/api/reports/dtr/route';
+import { formatPHTime } from '@/lib/ph-time';
 
 interface Props {
   isAdmin?: boolean;
@@ -182,10 +183,10 @@ export default function DTRViewer({ isAdmin = false }: Props) {
           d.day,
           d.date,
           d.dayOfWeek,
-          d.timeIn || '-',
-          d.breakStart || '-',
-          d.breakEnd || '-',
-          d.timeOut || '-',
+          d.timeIn ? formatPHTime(d.timeIn) : '-',
+          d.breakStart ? formatPHTime(d.breakStart) : '-',
+          d.breakEnd ? formatPHTime(d.breakEnd) : '-',
+          d.timeOut ? formatPHTime(d.timeOut) : '-',
           d.regularHours,
           d.overtimeHours,
           d.overtimePay,
@@ -411,10 +412,10 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                         <td className="border-r border-slate-300 py-1 px-1 font-bold text-slate-700">
                           {d.day} <span className="text-[9px] font-normal text-slate-400">({d.dayOfWeek})</span>
                         </td>
-                        <td className="border-r border-slate-200 py-1 px-1 font-mono">{d.timeIn || '-'}</td>
-                        <td className="border-r border-slate-200 py-1 px-1 font-mono">{d.breakStart || '-'}</td>
-                        <td className="border-r border-slate-200 py-1 px-1 font-mono">{d.breakEnd || '-'}</td>
-                        <td className="border-r border-slate-200 py-1 px-1 font-mono">{d.timeOut || '-'}</td>
+                        <td className="border-r border-slate-200 py-1 px-1 font-mono whitespace-nowrap">{d.timeIn ? formatPHTime(d.timeIn) : '-'}</td>
+                        <td className="border-r border-slate-200 py-1 px-1 font-mono whitespace-nowrap">{d.breakStart ? formatPHTime(d.breakStart) : '-'}</td>
+                        <td className="border-r border-slate-200 py-1 px-1 font-mono whitespace-nowrap">{d.breakEnd ? formatPHTime(d.breakEnd) : '-'}</td>
+                        <td className="border-r border-slate-200 py-1 px-1 font-mono whitespace-nowrap">{d.timeOut ? formatPHTime(d.timeOut) : '-'}</td>
                         {/* Overtime */}
                         <td className="border-r border-slate-200 py-1 px-1 bg-amber-50/40 font-bold text-amber-700">
                           {d.overtimeHours > 0 ? `${d.overtimeHours}h` : '-'}

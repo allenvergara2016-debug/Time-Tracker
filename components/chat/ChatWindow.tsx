@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Conversation, Message, Profile } from '@/types/database.types';
-import { Send, Image, Megaphone, Users, User, ArrowLeft, ShieldAlert } from 'lucide-react';
+import { Conversation, Message, Profile, MessageReaction } from '@/types/database.types';
+import { formatPHTime } from '@/lib/ph-time';
+import { Send, Image, Megaphone, Users, User, ArrowLeft, ShieldAlert, Smile, Heart, ThumbsUp } from 'lucide-react';
 
 interface Props {
   currentUser: Profile;
@@ -20,6 +21,9 @@ export default function ChatWindow({ currentUser }: Props) {
   const [loading, setLoading] = useState(false);
   const [colleagues, setColleagues] = useState<Profile[]>([]);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [activeReactionPickerMsgId, setActiveReactionPickerMsgId] = useState<string | null>(null);
+
+  const EMOJI_LIST = ['👍', '❤️', '😂', '😮', '😢', '🔥', '👏'];
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -81,51 +85,95 @@ export default function ChatWindow({ currentUser }: Props) {
     }
   }, [selectedConversation?.id]);
 
-  // Supabase Realtime channel subscription for live chat
+  // Supabase Realtime channel subscription for live chat & reactions
   useEffect(() => {
     if (!selectedConversation) return;
 
+    // Listen to messages table events
     const channel = supabase
-      .channel(`chat:${selectedConversation.id}`)
+      .channel(`chat-room-${selectedConversation.id}`)
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*', // Listen to INSERT, UPDATE, DELETE
           schema: 'public',
           table: 'messages',
           filter: `conversation_id=eq.${selectedConversation.id}`,
         },
-        async (payload) => {
-          const newMsg = payload.new as Message;
-          // Fetch sender profile details if needed
-          const { data: senderProf } = await supabase
-            .from('profiles')
-            .select('id, full_name, email, avatar_url, role')
-            .eq('id', newMsg.sender_id)
-            .single();
-
-          const completeMsg = { ...newMsg, sender: senderProf as Profile };
-          setMessages((prev) => [...prev, completeMsg]);
-          scrollToBottom();
+        async () => {
+          // Immediately reload messages for accurate order, profile joins, and relations
+          loadMessages(selectedConversation.id);
+          loadConversations();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'message_reactions',
+        },
+        () => {
+          // Instantly refresh reactions when anyone reacts
+          loadMessages(selectedConversation.id);
         }
       )
       .subscribe();
 
+    // Fast backup polling (every 3 seconds) in case WebSocket is suspended or reconnecting
+    const pollInterval = setInterval(() => {
+      loadMessages(selectedConversation.id);
+    }, 3000);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
   }, [selectedConversation?.id]);
+
+  // Handle Emoji Reaction
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    setActiveReactionPickerMsgId(null);
+    try {
+      const res = await fetch(`/api/chat/messages/${messageId}/react`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emoji }),
+      });
+
+      if (res.ok && selectedConversation) {
+        loadMessages(selectedConversation.id);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Send message
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedConversation || (!inputText.trim() && !mediaUrl)) return;
 
-    setLoading(true);
     const content = inputText;
     const media = mediaUrl;
     setInputText('');
     setMediaUrl('');
+
+    // 1. Optimistic instant message render (0-millisecond UI feedback)
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg: Message = {
+      id: tempId,
+      conversation_id: selectedConversation.id,
+      sender_id: currentUser.id,
+      content: content || null,
+      media_url: media || null,
+      created_at: new Date().toISOString(),
+      sender: currentUser,
+      reactions: [],
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    scrollToBottom();
 
     try {
       const res = await fetch(`/api/chat/conversations/${selectedConversation.id}/messages`, {
@@ -137,13 +185,21 @@ export default function ChatWindow({ currentUser }: Props) {
       if (!res.ok) {
         const err = await res.json();
         alert(err.error || 'Failed to send message');
+        // Rollback optimistic message on error
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
       } else {
+        const data = await res.json();
+        // Replace temp message with server confirmed message
+        if (data.message) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...data.message, reactions: [] } : m))
+          );
+        }
         loadConversations();
       }
     } catch (e) {
       console.error(e);
-    } finally {
-      setLoading(false);
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
     }
   };
 
@@ -296,27 +352,88 @@ export default function ChatWindow({ currentUser }: Props) {
                       </div>
                     )}
 
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
-                        isMe
-                          ? 'bg-blue-600 text-white rounded-br-sm'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-bl-sm'
-                      }`}
-                    >
-                      {m.content && <p className="whitespace-pre-wrap">{m.content}</p>}
-                      {m.media_url && (
-                        <div className="mt-2 rounded-xl overflow-hidden max-w-xs">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={m.media_url} alt="Shared media" className="w-full h-auto" />
-                        </div>
-                      )}
-                      <span
-                        className={`block text-[10px] mt-1 text-right ${
-                          isMe ? 'text-blue-200' : 'text-slate-400'
+                    <div className="relative group">
+                      <div
+                        className={`max-w-[80%] min-w-[76px] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
+                          isMe
+                            ? 'bg-blue-600 text-white rounded-br-sm'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-bl-sm'
                         }`}
                       >
-                        {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                        {m.content && <p className="whitespace-pre-wrap">{m.content}</p>}
+                        {m.media_url && (
+                          <div className="mt-2 rounded-xl overflow-hidden max-w-xs">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={m.media_url} alt="Shared media" className="w-full h-auto" />
+                          </div>
+                        )}
+                        <span
+                          className={`block text-[10px] mt-1 text-right whitespace-nowrap shrink-0 tabular-nums select-none ${
+                            isMe ? 'text-blue-200' : 'text-slate-400'
+                          }`}
+                        >
+                          {formatPHTime(m.created_at)}
+                        </span>
+                      </div>
+
+                      {/* Display active reactions */}
+                      {m.reactions && m.reactions.length > 0 && (
+                        <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                          {/* Group reactions by emoji */}
+                          {Object.entries(
+                            m.reactions.reduce((acc: Record<string, number>, r) => {
+                              acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                              return acc;
+                            }, {})
+                          ).map(([emoji, count]) => {
+                            const userReacted = m.reactions?.some(
+                              (r) => r.emoji === emoji && r.user_id === currentUser.id
+                            );
+                            return (
+                              <button
+                                key={emoji}
+                                onClick={() => handleToggleReaction(m.id, emoji)}
+                                className={`px-2 py-0.5 rounded-full text-xs flex items-center gap-1 border shadow-xs transition ${
+                                  userReacted
+                                    ? 'bg-blue-100 border-blue-400 text-blue-900 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300 font-bold'
+                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                                }`}
+                              >
+                                <span>{emoji}</span>
+                                {count > 1 && <span className="text-[10px]">{count}</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Reaction trigger hover button */}
+                      <div className={`absolute top-0 ${isMe ? '-left-8' : '-right-8'} hidden group-hover:flex items-center`}>
+                        <button
+                          type="button"
+                          onClick={() => setActiveReactionPickerMsgId(activeReactionPickerMsgId === m.id ? null : m.id)}
+                          className="p-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-amber-500 shadow-sm transition"
+                          title="React to message"
+                        >
+                          <Smile className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Messenger-style Emoji Picker Popup */}
+                        {activeReactionPickerMsgId === m.id && (
+                          <div className={`absolute z-30 -top-9 ${isMe ? 'right-0' : 'left-0'} flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-1.5 rounded-full shadow-xl animate-in fade-in zoom-in-95 duration-100`}>
+                            {EMOJI_LIST.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => handleToggleReaction(m.id, emoji)}
+                                className="w-7 h-7 flex items-center justify-center text-base hover:scale-130 transition-transform active:scale-95"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

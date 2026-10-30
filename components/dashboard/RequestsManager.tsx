@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Calendar, AlertCircle, Plus, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Calendar, AlertCircle, Plus, CheckCircle2, XCircle, Clock, User } from 'lucide-react';
 import { LeaveRequest, CorrectionRequest, LeaveType } from '@/types/database.types';
 
 interface Props {
@@ -205,8 +205,14 @@ export default function RequestsManager({ isAdmin = false }: Props) {
                     </span>
                   </div>
 
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Dates: <b>{req.start_date}</b> to <b>{req.end_date}</b> {isAdmin && req.profile ? `• ${req.profile.full_name}` : ''}
+                  {/* Employee Name */}
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 mt-1">
+                    <User className="w-3.5 h-3.5 shrink-0" />
+                    <span>Employee: {(req as any).employee?.full_name || req.profile?.full_name || (req as any).employee?.email || req.profile?.email || 'Employee'}</span>
+                  </div>
+
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Dates: <b>{req.start_date}</b> to <b>{req.end_date}</b>
                   </p>
                   <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 italic">&quot;{req.reason}&quot;</p>
                   {req.review_notes && (
@@ -262,10 +268,15 @@ export default function RequestsManager({ isAdmin = false }: Props) {
                     </span>
                   </div>
 
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  {/* Employee Name */}
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 mt-1">
+                    <User className="w-3.5 h-3.5 shrink-0" />
+                    <span>Employee: {(corr as any).employee?.full_name || corr.profile?.full_name || (corr as any).employee?.email || corr.profile?.email || 'Employee'}</span>
+                  </div>
+
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {corr.requested_time_in && `In: ${new Date(corr.requested_time_in).toLocaleTimeString()} `}
                     {corr.requested_time_out && `Out: ${new Date(corr.requested_time_out).toLocaleTimeString()} `}
-                    {isAdmin && corr.profile ? `• ${corr.profile.full_name}` : ''}
                   </p>
                   <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 italic">&quot;{corr.reason}&quot;</p>
                   {corr.review_notes && (
