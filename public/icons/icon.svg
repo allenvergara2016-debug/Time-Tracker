@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a" />
+      <stop offset="50%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <linearGradient id="shield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#e0e7ff" stop-opacity="0.95" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)" />
+  <!-- Shield Outline -->
+  <path d="M256 96 L376 144 V264 C376 344 324 404 256 428 C188 404 136 344 136 264 V144 Z" 
+        fill="url(#shield)" />
+  <!-- Clock / Checkmark in Shield -->
+  <circle cx="256" cy="240" r="50" fill="none" stroke="#2563eb" stroke-width="12" />
+  <polyline points="256,210 256,242 278,256" fill="none" stroke="#2563eb" stroke-width="12" stroke-linecap="round" />
+  <!-- Biometric Fingerprint lines -->
+  <path d="M216 330 C236 315 276 315 296 330" fill="none" stroke="#1d4ed8" stroke-width="8" stroke-linecap="round" />
+  <path d="M200 350 C230 330 282 330 312 350" fill="none" stroke="#1d4ed8" stroke-width="8" stroke-linecap="round" />
+</svg>
+
