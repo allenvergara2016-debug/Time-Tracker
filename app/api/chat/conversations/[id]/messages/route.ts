@@ -17,7 +17,7 @@ export async function GET(
 
     const { data: messages, error } = await adminClient
       .from('messages')
-      .select('*, sender:profiles(id, full_name, email, avatar_url, role)')
+      .select('*, sender:profiles(id, full_name, email, avatar_url, role), reactions:message_reactions(*, user:profiles(id, full_name))')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true });
 

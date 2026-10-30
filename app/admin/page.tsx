@@ -28,8 +28,11 @@ import {
   DollarSign,
   Edit2,
   Edit,
+  MessageSquare,
+  Crown,
 } from 'lucide-react';
 import DTRViewer from '@/components/reports/DTRViewer';
+import ChatWindow from '@/components/chat/ChatWindow';
 import {
   Profile,
   Location,
@@ -48,8 +51,24 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'map' | 'employees' | 'locations' | 'shifts' | 'requests' | 'reports' | 'dtr' | 'flagged' | 'settings'>('overview');
+  type AdminTab = 'overview' | 'map' | 'employees' | 'locations' | 'shifts' | 'requests' | 'chat' | 'dtr' | 'reports' | 'flagged' | 'settings';
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+
+  // Restore saved active tab on reload, and persist tab selection
+  useEffect(() => {
+    const saved = localStorage.getItem('activeAdminTab') as AdminTab;
+    if (saved) {
+      setActiveTab(saved);
+    }
+  }, []);
+
+  const handleSelectTab = (tab: AdminTab) => {
+    setActiveTab(tab);
+    localStorage.setItem('activeAdminTab', tab);
+  };
   const [loading, setLoading] = useState(true);
+  const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
 
   // Dashboard Overview Data
   const [selectedDate, setSelectedDate] = useState('');
@@ -134,12 +153,13 @@ export default function AdminDashboardPage() {
 
   const loadAllEntities = async () => {
     try {
-      const [empRes, locRes, shRes, depRes, setRes] = await Promise.all([
+      const [empRes, locRes, shRes, depRes, setRes, chatRes] = await Promise.all([
         fetch('/api/admin/employees'),
         fetch('/api/admin/locations'),
         fetch('/api/admin/shifts'),
         fetch('/api/admin/departments'),
         fetch('/api/admin/settings'),
+        fetch('/api/chat/conversations'),
       ]);
 
       if (empRes.ok) {
@@ -162,6 +182,21 @@ export default function AdminDashboardPage() {
         const d = await setRes.json();
         setAppSettings(d.settings || null);
       }
+      if (chatRes.ok) {
+        const d = await chatRes.json();
+        const totalUnread = (d.conversations || []).reduce(
+          (acc: number, c: { unreadCount?: number }) => acc + (c.unreadCount || 0),
+          0
+        );
+        setUnreadChatCount(totalUnread);
+      }
+
+      // Load current admin profile
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+        if (prof) setCurrentUserProfile(prof as Profile);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -172,6 +207,49 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     loadDashboardData();
     loadAllEntities();
+
+    // 1. Supabase Realtime subscription for instant live admin dashboard
+    const channel = supabase
+      .channel('admin-dashboard-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'attendance_logs' },
+        () => {
+          loadDashboardData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leave_requests' },
+        () => {
+          loadDashboardData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        () => {
+          loadAllEntities();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        () => {
+          setUnreadChatCount((prev) => prev + 1);
+        }
+      )
+      .subscribe();
+
+    // 2. 5-second automatic heartbeat fallback
+    const interval = setInterval(() => {
+      loadDashboardData();
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
   }, [selectedDate, selectedDept]);
 
   // Handle Create Employee
@@ -445,7 +523,7 @@ export default function AdminDashboardPage() {
         {/* Sidebar Nav */}
         <nav className="w-full md:w-64 border-r border-slate-800 p-4 space-y-1 bg-slate-900/40">
           <button
-            onClick={() => setActiveTab('overview')}
+            onClick={() => handleSelectTab('overview')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'overview' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -454,7 +532,7 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('map')}
+            onClick={() => handleSelectTab('map')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'map' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -463,7 +541,7 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('employees')}
+            onClick={() => handleSelectTab('employees')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'employees' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -472,7 +550,7 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('locations')}
+            onClick={() => handleSelectTab('locations')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'locations' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -481,7 +559,7 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('shifts')}
+            onClick={() => handleSelectTab('shifts')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'shifts' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -490,7 +568,7 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('requests')}
+            onClick={() => handleSelectTab('requests')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'requests' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -499,7 +577,24 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('dtr')}
+            onClick={() => {
+              handleSelectTab('chat');
+              setUnreadChatCount(0);
+            }}
+            className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center justify-between ${
+              activeTab === 'chat' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <MessageSquare className="w-4 h-4" /> Company Chat &amp; Announcements
+            </div>
+            {unreadChatCount > 0 && (
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse shadow-sm" />
+            )}
+          </button>
+
+          <button
+            onClick={() => handleSelectTab('dtr')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'dtr' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -508,7 +603,7 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('reports')}
+            onClick={() => handleSelectTab('reports')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'reports' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -517,7 +612,7 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('flagged')}
+            onClick={() => handleSelectTab('flagged')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'flagged' ? 'bg-rose-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -526,7 +621,7 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('settings')}
+            onClick={() => handleSelectTab('settings')}
             className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
               activeTab === 'settings' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
@@ -635,6 +730,7 @@ export default function AdminDashboardPage() {
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="pb-3 font-semibold">Date</th>
                           <th className="pb-3 font-semibold">Employee</th>
                           <th className="pb-3 font-semibold">Time In</th>
                           <th className="pb-3 font-semibold">Time Out</th>
@@ -647,12 +743,15 @@ export default function AdminDashboardPage() {
                       <tbody className="divide-y divide-slate-800/60">
                         {attendanceLogs.map((log) => (
                           <tr key={log.id} className="hover:bg-slate-800/30">
-                            <td className="py-3 font-medium text-white">{log.profile?.full_name || 'Employee'}</td>
-                            <td className="py-3 text-slate-300">{formatPHTime(log.time_in)}</td>
-                            <td className="py-3 text-slate-300">
+                            <td className="py-3 font-mono text-slate-400 whitespace-nowrap">{log.date}</td>
+                            <td className="py-3 font-medium text-white whitespace-nowrap">
+                              {log.profile?.full_name || log.employee?.full_name || log.profile?.email || log.employee?.email || 'Employee'}
+                            </td>
+                            <td className="py-3 text-slate-300 font-mono whitespace-nowrap">{formatPHTime(log.time_in)}</td>
+                            <td className="py-3 text-slate-300 font-mono whitespace-nowrap">
                               {log.time_out ? formatPHTime(log.time_out) : '--'}
                             </td>
-                            <td className="py-3 font-mono text-slate-300">{log.hours_worked || '--'}</td>
+                            <td className="py-3 font-mono text-slate-300 whitespace-nowrap">{log.hours_worked ?? '--'}</td>
                             <td className="py-3">
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
@@ -867,6 +966,21 @@ export default function AdminDashboardPage() {
 
           {/* TAB 6: REQUESTS APPROVAL */}
           {activeTab === 'requests' && <RequestsManager isAdmin={true} />}
+
+          {/* TAB 7: CHAT & ANNOUNCEMENTS */}
+          {activeTab === 'chat' && currentUserProfile && (
+            <div className="space-y-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-sm">
+                <div className="mb-4">
+                  <h3 className="font-bold text-base text-white">Company Communication &amp; Official Announcements</h3>
+                  <p className="text-xs text-slate-400">
+                    Broadcast corporate bulletins or chat directly with employees with real-time Messenger-style reactions.
+                  </p>
+                </div>
+                <ChatWindow currentUser={currentUserProfile} />
+              </div>
+            </div>
+          )}
 
           {/* TAB 7: REPORTS */}
           {activeTab === 'reports' && (
@@ -1138,6 +1252,20 @@ export default function AdminDashboardPage() {
                 </select>
               </div>
 
+              {(currentUserProfile?.email === 'admin@company.com' || currentUserProfile?.is_super_admin) && (
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Account Role (Super Admin Privilege)</label>
+                  <select
+                    value={empRole}
+                    onChange={(e) => setEmpRole(e.target.value as 'employee' | 'admin')}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  >
+                    <option value="employee">Employee</option>
+                    <option value="admin">Administrator</option>
+                  </select>
+                </div>
+              )}
+
               {empError && <p className="text-rose-400 text-[11px]">{empError}</p>}
 
               <div className="flex gap-2 pt-2">
@@ -1372,14 +1500,21 @@ export default function AdminDashboardPage() {
                 </div>
                 <div>
                   <label className="block text-slate-300 mb-1 font-medium">Role</label>
-                  <select
-                    value={editRole}
-                    onChange={(e) => setEditRole(e.target.value as 'employee' | 'admin')}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
-                  >
-                    <option value="employee">Employee</option>
-                    <option value="admin">Administrator</option>
-                  </select>
+                  {currentUserProfile?.email === 'admin@company.com' || currentUserProfile?.is_super_admin ? (
+                    <select
+                      value={editRole}
+                      onChange={(e) => setEditRole(e.target.value as 'employee' | 'admin')}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                    >
+                      <option value="employee">Employee</option>
+                      <option value="admin">Administrator</option>
+                    </select>
+                  ) : (
+                    <div className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 capitalize flex items-center justify-between">
+                      <span>{editRole}</span>
+                      <span className="text-[10px] text-amber-500 font-medium">Super Admin Only</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

@@ -25,7 +25,12 @@ export async function GET(req: NextRequest) {
     const { data: requests, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ requests: requests || [] });
+    const formatted = (requests || []).map((r) => ({
+      ...r,
+      profile: r.employee || r.profile,
+    }));
+
+    return NextResponse.json({ requests: formatted });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Leave requests fetch error';
     return NextResponse.json({ error: message }, { status: 500 });

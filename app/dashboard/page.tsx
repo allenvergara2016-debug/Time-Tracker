@@ -34,9 +34,24 @@ export default function EmployeeDashboardPage() {
   const [todayLog, setTodayLog] = useState<AttendanceLog | null>(null);
   const [activeBreak, setActiveBreak] = useState<BreakRecord | null>(null);
   const [history, setHistory] = useState<AttendanceLog[]>([]);
-  const [activeTab, setActiveTab] = useState<'clock' | 'history' | 'dtr' | 'requests' | 'chat' | 'profile'>('clock');
+  type EmployeeTab = 'clock' | 'history' | 'dtr' | 'requests' | 'chat' | 'profile';
+  const [activeTab, setActiveTab] = useState<EmployeeTab>('clock');
+
+  // Restore saved employee tab from localStorage on reload
+  useEffect(() => {
+    const saved = localStorage.getItem('activeEmployeeTab') as EmployeeTab;
+    if (saved) {
+      setActiveTab(saved);
+    }
+  }, []);
+
+  const handleSelectTab = (tab: EmployeeTab) => {
+    setActiveTab(tab);
+    localStorage.setItem('activeEmployeeTab', tab);
+  };
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
 
   // Live clock ticker
   useEffect(() => {
@@ -98,6 +113,21 @@ export default function EmployeeDashboardPage() {
         .single();
 
       if (prefs) setPreferences(prefs as NotificationPreference);
+
+      // 5. Fetch unread chat count
+      try {
+        const chatRes = await fetch('/api/chat/conversations');
+        if (chatRes.ok) {
+          const chatData = await chatRes.json();
+          const totalUnread = (chatData.conversations || []).reduce(
+            (acc: number, c: { unreadCount?: number }) => acc + (c.unreadCount || 0),
+            0
+          );
+          setUnreadChatCount(totalUnread);
+        }
+      } catch (err) {
+        // ignore
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -107,6 +137,42 @@ export default function EmployeeDashboardPage() {
 
   useEffect(() => {
     loadData();
+
+    // 1. Supabase Realtime channel for live employee updates
+    const channel = supabase
+      .channel('employee-dashboard-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'attendance_logs' },
+        () => {
+          loadData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leave_requests' },
+        () => {
+          loadData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        () => {
+          setUnreadChatCount((prev) => prev + 1);
+        }
+      )
+      .subscribe();
+
+    // 2. 5-second automatic heartbeat fallback
+    const interval = setInterval(() => {
+      loadData();
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -178,7 +244,7 @@ export default function EmployeeDashboardPage() {
         {/* Navigation Tabs (Desktop & Tablet) */}
         <div className="hidden sm:flex items-center justify-center gap-2 bg-slate-200/60 dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800">
           <button
-            onClick={() => setActiveTab('clock')}
+            onClick={() => handleSelectTab('clock')}
             className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
               activeTab === 'clock' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-sm' : 'text-slate-500'
             }`}
@@ -186,7 +252,7 @@ export default function EmployeeDashboardPage() {
             <Clock className="w-4 h-4" /> Clock In/Out
           </button>
           <button
-            onClick={() => setActiveTab('history')}
+            onClick={() => handleSelectTab('history')}
             className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
               activeTab === 'history' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-sm' : 'text-slate-500'
             }`}
@@ -194,7 +260,7 @@ export default function EmployeeDashboardPage() {
             <History className="w-4 h-4" /> Attendance
           </button>
           <button
-            onClick={() => setActiveTab('dtr')}
+            onClick={() => handleSelectTab('dtr')}
             className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
               activeTab === 'dtr' ? 'bg-white dark:bg-slate-800 text-emerald-600 shadow-sm' : 'text-slate-500'
             }`}
@@ -202,7 +268,7 @@ export default function EmployeeDashboardPage() {
             <FileText className="w-4 h-4" /> DTR Form
           </button>
           <button
-            onClick={() => setActiveTab('requests')}
+            onClick={() => handleSelectTab('requests')}
             className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
               activeTab === 'requests' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-sm' : 'text-slate-500'
             }`}
@@ -210,15 +276,24 @@ export default function EmployeeDashboardPage() {
             <Calendar className="w-4 h-4" /> Requests
           </button>
           <button
-            onClick={() => setActiveTab('chat')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
+            onClick={() => {
+              handleSelectTab('chat');
+              setUnreadChatCount(0);
+            }}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 relative ${
               activeTab === 'chat' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-sm' : 'text-slate-500'
             }`}
           >
-            <MessageSquare className="w-4 h-4" /> Team Chat
+            <div className="relative">
+              <MessageSquare className="w-4 h-4" />
+              {unreadChatCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
+              )}
+            </div>
+            <span>Team Chat</span>
           </button>
           <button
-            onClick={() => setActiveTab('profile')}
+            onClick={() => handleSelectTab('profile')}
             className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
               activeTab === 'profile' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-sm' : 'text-slate-500'
             }`}
@@ -371,7 +446,7 @@ export default function EmployeeDashboardPage() {
       {/* Mobile Bottom Navigation Bar (Sticky Bottom) */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-4 py-2 flex items-center justify-around">
         <button
-          onClick={() => setActiveTab('clock')}
+          onClick={() => handleSelectTab('clock')}
           className={`flex flex-col items-center gap-1 ${
             activeTab === 'clock' ? 'text-blue-600' : 'text-slate-400'
           }`}
@@ -381,7 +456,7 @@ export default function EmployeeDashboardPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab('history')}
+          onClick={() => handleSelectTab('history')}
           className={`flex flex-col items-center gap-1 ${
             activeTab === 'history' ? 'text-blue-600' : 'text-slate-400'
           }`}
@@ -391,7 +466,7 @@ export default function EmployeeDashboardPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab('dtr')}
+          onClick={() => handleSelectTab('dtr')}
           className={`flex flex-col items-center gap-1 ${
             activeTab === 'dtr' ? 'text-emerald-600' : 'text-slate-400'
           }`}
@@ -401,7 +476,7 @@ export default function EmployeeDashboardPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab('requests')}
+          onClick={() => handleSelectTab('requests')}
           className={`flex flex-col items-center gap-1 ${
             activeTab === 'requests' ? 'text-blue-600' : 'text-slate-400'
           }`}
@@ -411,17 +486,25 @@ export default function EmployeeDashboardPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab('chat')}
-          className={`flex flex-col items-center gap-1 ${
+          onClick={() => {
+            handleSelectTab('chat');
+            setUnreadChatCount(0);
+          }}
+          className={`flex flex-col items-center gap-1 relative ${
             activeTab === 'chat' ? 'text-blue-600' : 'text-slate-400'
           }`}
         >
-          <MessageSquare className="w-5 h-5" />
+          <div className="relative">
+            <MessageSquare className="w-5 h-5" />
+            {unreadChatCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+            )}
+          </div>
           <span className="text-[10px] font-bold">Chat</span>
         </button>
 
         <button
-          onClick={() => setActiveTab('profile')}
+          onClick={() => handleSelectTab('profile')}
           className={`flex flex-col items-center gap-1 ${
             activeTab === 'profile' ? 'text-blue-600' : 'text-slate-400'
           }`}

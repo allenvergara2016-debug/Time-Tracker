@@ -49,7 +49,14 @@ export async function GET(req: NextRequest) {
         location_out:locations!location_out_id(id, name, lat, lng, radius_meters),
         breaks(*)
       `)
-      .eq('date', date);
+      .eq('date', date)
+      .order('time_in', { ascending: false });
+
+    // Format logs with normalized profile field
+    const formattedLogs = (logs || []).map((l) => ({
+      ...l,
+      profile: l.employee || l.profile,
+    }));
 
     // 3. Fetch approved leaves for today
     const { data: leaves } = await adminClient
@@ -104,10 +111,10 @@ export async function GET(req: NextRequest) {
         onLeave: onLeaveCount,
         flagged: (flaggedLogs?.length || 0) + (recentFailed?.length || 0),
       },
-      attendanceLogs: logs || [],
+      attendanceLogs: formattedLogs || [],
       leaves: leaves || [],
       failedAttempts: recentFailed || [],
-      flaggedLogs: flaggedLogs || [],
+      flaggedLogs: (flaggedLogs || []).map((fl) => ({ ...fl, profile: fl.employee || fl.profile })),
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Dashboard data fetch error';
