@@ -21,9 +21,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileText,
+  Menu,
+  X,
+  Sparkles,
 } from 'lucide-react';
 import DTRViewer from '@/components/reports/DTRViewer';
 import { useCompanyTimezone } from '@/lib/use-timezone';
+import AppLogo from '@/components/ui/AppLogo';
+import InstallAppDrawerButton from '@/components/pwa/InstallAppDrawerButton';
 import { Profile, AttendanceLog, BreakRecord, NotificationPreference } from '@/types/database.types';
 
 export default function EmployeeDashboardPage() {
@@ -31,6 +36,7 @@ export default function EmployeeDashboardPage() {
   const supabase = createClient();
   const { timezone, timezoneLabel } = useCompanyTimezone();
 
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [preferences, setPreferences] = useState<NotificationPreference | null>(null);
   const [todayLog, setTodayLog] = useState<AttendanceLog | null>(null);
@@ -208,7 +214,17 @@ export default function EmployeeDashboardPage() {
 
       {/* Top Mobile-First Header */}
       <header className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Mobile Drawer Trigger Button */}
+          <button
+            onClick={() => setMobileDrawerOpen(true)}
+            className="sm:hidden p-2 -ml-1 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
+            title="Open Menu Drawer"
+            aria-label="Open Menu Drawer"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
           <div className="w-9 h-9 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
             {profile.full_name?.[0] || 'E'}
           </div>
@@ -223,6 +239,9 @@ export default function EmployeeDashboardPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Download Website Button in Header */}
+          <InstallAppDrawerButton variant="header" />
+
           {profile.role === 'admin' && (
             <button
               onClick={() => router.push('/admin')}
@@ -240,6 +259,162 @@ export default function EmployeeDashboardPage() {
           </button>
         </div>
       </header>
+
+      {/* Mobile Navigation Drawer */}
+      {mobileDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex sm:hidden animate-in fade-in duration-200">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+            onClick={() => setMobileDrawerOpen(false)}
+          />
+
+          {/* Drawer Panel */}
+          <div className="relative w-72 max-w-[80vw] bg-white dark:bg-slate-900 h-full p-5 flex flex-col justify-between shadow-2xl z-10 border-r border-slate-200 dark:border-slate-800">
+            <div className="space-y-5">
+              {/* Drawer Brand Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <AppLogo size="sm" />
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 dark:text-white leading-tight">
+                      Time Tracker
+                    </h3>
+                    <p className="text-[10px] text-slate-400">Employee Portal</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setMobileDrawerOpen(false)}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                  aria-label="Close Drawer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* User Profile Card */}
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-base shadow-sm shrink-0">
+                  {profile.full_name?.[0] || 'E'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                    {profile.full_name}
+                  </h4>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                    {profile.email}
+                  </p>
+                </div>
+              </div>
+
+              {/* DOWNLOAD APP BUTTON IN DRAWER */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                  Mobile Shortcut
+                </span>
+                <InstallAppDrawerButton variant="drawer" />
+              </div>
+
+              {/* Drawer Navigation Links */}
+              <div className="space-y-1 pt-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                  Menu
+                </span>
+                <button
+                  onClick={() => {
+                    handleSelectTab('clock');
+                    setMobileDrawerOpen(false);
+                  }}
+                  className={`w-full px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${
+                    activeTab === 'clock' ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Clock className="w-4 h-4" /> Tap Clock In/Out
+                </button>
+                <button
+                  onClick={() => {
+                    handleSelectTab('history');
+                    setMobileDrawerOpen(false);
+                  }}
+                  className={`w-full px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${
+                    activeTab === 'history' ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <History className="w-4 h-4" /> Attendance Log
+                </button>
+                <button
+                  onClick={() => {
+                    handleSelectTab('dtr');
+                    setMobileDrawerOpen(false);
+                  }}
+                  className={`w-full px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${
+                    activeTab === 'dtr' ? 'bg-emerald-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <FileText className="w-4 h-4" /> DTR Form 48
+                </button>
+                <button
+                  onClick={() => {
+                    handleSelectTab('requests');
+                    setMobileDrawerOpen(false);
+                  }}
+                  className={`w-full px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${
+                    activeTab === 'requests' ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" /> Leave &amp; Corrections
+                </button>
+                <button
+                  onClick={() => {
+                    handleSelectTab('chat');
+                    setUnreadChatCount(0);
+                    setMobileDrawerOpen(false);
+                  }}
+                  className={`w-full px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                    activeTab === 'chat' ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <MessageSquare className="w-4 h-4" /> Team Chat
+                  </div>
+                  {unreadChatCount > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    handleSelectTab('profile');
+                    setMobileDrawerOpen(false);
+                  }}
+                  className={`w-full px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${
+                    activeTab === 'profile' ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <User className="w-4 h-4" /> Profile &amp; Passkeys
+                </button>
+              </div>
+            </div>
+
+            {/* Drawer Footer */}
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
+              {profile.role === 'admin' && (
+                <button
+                  onClick={() => router.push('/admin')}
+                  className="w-full py-2 px-3 rounded-xl bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 text-xs font-semibold flex items-center justify-center gap-2 hover:bg-purple-200 transition"
+                >
+                  Switch to Admin View
+                </button>
+              )}
+              <button
+                onClick={handleLogout}
+                className="w-full py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-2 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30 dark:hover:text-rose-400 transition"
+              >
+                <LogOut className="w-4 h-4" /> Log Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Body */}
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
@@ -437,11 +612,14 @@ export default function EmployeeDashboardPage() {
 
         {/* TAB 5: CONNECTED ACCOUNTS & SETTINGS */}
         {activeTab === 'profile' && (
-          <ConnectedAccounts
-            profile={profile}
-            preferences={preferences}
-            onProfileUpdated={loadData}
-          />
+          <div className="space-y-6">
+            <InstallAppDrawerButton variant="card" />
+            <ConnectedAccounts
+              profile={profile}
+              preferences={preferences}
+              onProfileUpdated={loadData}
+            />
+          </div>
         )}
       </main>
 

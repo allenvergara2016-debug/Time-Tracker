@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Lock, Mail, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
+import InstallAppDrawerButton from '@/components/pwa/InstallAppDrawerButton';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -189,6 +190,11 @@ export default function LoginPage() {
         <p className="mt-6 text-center text-[11px] text-slate-400">
           Public sign-up is disabled. Accounts are provisioned solely by company administrators.
         </p>
+
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col items-center gap-1.5">
+          <InstallAppDrawerButton variant="header" />
+          <span className="text-[10px] text-slate-400">Install app for fast 1-tap biometric login</span>
+        </div>
       </div>
     </div>
   );

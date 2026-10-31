@@ -37,6 +37,7 @@ import DTRViewer from '@/components/reports/DTRViewer';
 import ChatWindow from '@/components/chat/ChatWindow';
 import PasskeyManager from '@/components/auth/PasskeyManager';
 import AppLogo from '@/components/ui/AppLogo';
+import InstallAppDrawerButton from '@/components/pwa/InstallAppDrawerButton';
 import {
   Profile,
   Location,
@@ -519,7 +520,8 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <InstallAppDrawerButton variant="header" />
           <button
             onClick={() => router.push('/dashboard')}
             className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300"
@@ -646,6 +648,11 @@ export default function AdminDashboardPage() {
           >
             <Settings className="w-4 h-4" /> System Settings
           </button>
+
+          {/* Download Website as App Drawer Button */}
+          <div className="pt-3 mt-3 border-t border-slate-800/80">
+            <InstallAppDrawerButton variant="drawer" />
+          </div>
         </nav>
 
         {/* Content Area */}
