@@ -4,7 +4,8 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { checkGeofence } from '@/lib/geofence';
 import { getWebAuthnConfig, base64UrlToBuffer } from '@/lib/webauthn';
-import { getPHDateString, parseShiftToPHDate, formatPHTime } from '@/lib/ph-time';
+import { getPHDateString, parseShiftToPHDate, formatPHTime, getTimezoneOffsetString } from '@/lib/ph-time';
+import { getCompanyTimezone } from '@/lib/company-timezone';
 import { VerificationMethod, AttendanceStatus } from '@/types/database.types';
 
 export async function POST(req: NextRequest) {
@@ -281,17 +282,19 @@ export async function POST(req: NextRequest) {
       flagReason = 'Logged via fallback password without fingerprint passkey.';
     }
 
-    // 8. Server Clock Time & Shift Calculation in Philippine Standard Time
+    // 8. Server Clock Time & Shift Calculation in Configured Company Timezone
+    const activeTz = await getCompanyTimezone();
+    const tzOffset = getTimezoneOffsetString(activeTz);
     const serverNow = new Date();
     const serverTimestamp = serverNow.toISOString();
-    const today = getPHDateString(serverNow);
+    const today = getPHDateString(serverNow, activeTz);
 
     // Check failed attempts today
     const { count: failedCount } = await adminClient
       .from('failed_attempts')
       .select('*', { count: 'exact', head: true })
       .eq('employee_id', user.id)
-      .gte('created_at', `${today}T00:00:00+08:00`);
+      .gte('created_at', `${today}T00:00:00${tzOffset}`);
 
     if ((failedCount ?? 0) >= 3) {
       isFlagged = true;
@@ -313,12 +316,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Already timed in today! Tap TIME OUT to conclude your shift.' }, { status: 400 });
       }
 
-      // Calculate late minutes in Philippine Time
+      // Calculate late minutes in configured Company Timezone
       let lateMinutes = 0;
       let status: AttendanceStatus = 'present';
 
       if (shift && shift.start_time) {
-        const shiftStart = parseShiftToPHDate(shift.start_time, today);
+        const shiftStart = parseShiftToPHDate(shift.start_time, today, activeTz);
         const graceMinutes = shift.grace_period_mins ?? 15;
         const graceDeadline = new Date(shiftStart.getTime() + graceMinutes * 60 * 1000);
 

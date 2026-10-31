@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseShiftToPHDate } from '@/lib/ph-time';
+import { getCompanyTimezone } from '@/lib/company-timezone';
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,12 +40,13 @@ export async function POST(req: NextRequest) {
     }
 
     const adminClient = createAdminClient();
+    const activeTz = await getCompanyTimezone();
 
-    // Helper to format ISO timestamp in Asia/Manila (+08:00)
+    // Helper to format ISO timestamp in configured company timezone
     const convertToIso = (tVal: string | null | undefined): string | null => {
       if (!tVal) return null;
       if (tVal.includes('T')) return new Date(tVal).toISOString();
-      return parseShiftToPHDate(tVal, date).toISOString();
+      return parseShiftToPHDate(tVal, date, activeTz).toISOString();
     };
 
     const timeInIso = convertToIso(time_in);

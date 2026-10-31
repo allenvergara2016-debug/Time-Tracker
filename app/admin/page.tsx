@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import RequestsManager from '@/components/dashboard/RequestsManager';
 import { exportToCSV, exportToExcel, exportToPDF, ReportItem } from '@/lib/export';
-import { formatPHTime, getPHDateString } from '@/lib/ph-time';
+import { formatPHTime, getPHDateString, SUPPORTED_TIMEZONES, getTimezoneLabel } from '@/lib/ph-time';
+import { useCompanyTimezone } from '@/lib/use-timezone';
 import {
   Users,
   MapPin,
@@ -30,6 +31,7 @@ import {
   Edit,
   MessageSquare,
   Crown,
+  Globe,
 } from 'lucide-react';
 import DTRViewer from '@/components/reports/DTRViewer';
 import ChatWindow from '@/components/chat/ChatWindow';
@@ -52,6 +54,7 @@ const LiveAttendanceMap = dynamic(() => import('@/components/map/LiveAttendanceM
 export default function AdminDashboardPage() {
   const router = useRouter();
   const supabase = createClient();
+  const { timezone, timezoneLabel } = useCompanyTimezone();
 
   type AdminTab = 'overview' | 'map' | 'employees' | 'locations' | 'shifts' | 'requests' | 'chat' | 'dtr' | 'reports' | 'flagged' | 'settings';
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
@@ -137,7 +140,8 @@ export default function AdminDashboardPage() {
   // Load Admin Data
   const loadDashboardData = async () => {
     try {
-      const q = new URLSearchParams({ date: selectedDate });
+      const targetDate = selectedDate || getPHDateString(new Date(), timezone);
+      const q = new URLSearchParams({ date: targetDate });
       if (selectedDept) q.set('department_id', selectedDept);
 
       const res = await fetch(`/api/admin/dashboard?${q.toString()}`);
@@ -252,7 +256,7 @@ export default function AdminDashboardPage() {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [selectedDate, selectedDept]);
+  }, [selectedDate, selectedDept, timezone]);
 
   // Handle Create Employee
   const handleCreateEmployee = async (e: React.FormEvent) => {
@@ -451,7 +455,15 @@ export default function AdminDashboardPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     });
-    if (res.ok) alert('Settings saved successfully!');
+    if (res.ok) {
+      if (typeof window !== 'undefined' && settings.timezone) {
+        localStorage.setItem('company_timezone', settings.timezone);
+        window.dispatchEvent(new CustomEvent('company-timezone-changed', { detail: { timezone: settings.timezone } }));
+      }
+      alert(`Settings saved successfully! Active Timezone: ${settings.timezone || timezone}`);
+    } else {
+      alert('Failed to save settings.');
+    }
   };
 
   // Export Reports
@@ -460,8 +472,8 @@ export default function AdminDashboardPage() {
       date: l.date,
       employee_name: l.profile?.full_name || 'Unknown',
       department: l.profile?.department_id || 'General',
-      time_in: l.time_in ? formatPHTime(l.time_in) : '-',
-      time_out: l.time_out ? formatPHTime(l.time_out) : '-',
+      time_in: l.time_in ? formatPHTime(l.time_in, false, timezone) : '-',
+      time_out: l.time_out ? formatPHTime(l.time_out, false, timezone) : '-',
       hours_worked: l.hours_worked || 0,
       late_minutes: l.late_minutes || 0,
       overtime_minutes: l.overtime_minutes || 0,
@@ -496,7 +508,13 @@ export default function AdminDashboardPage() {
         <div className="flex items-center gap-3">
           <AppLogo size="sm" />
           <div>
-            <h1 className="text-sm font-bold text-white">Admin Command Center</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-bold text-white">Admin Command Center</h1>
+              <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-950 border border-blue-800 text-blue-300">
+                <Globe className="w-3 h-3" />
+                {timezoneLabel}
+              </span>
+            </div>
             <p className="text-[11px] text-slate-400">Time Tracker & Biometrics</p>
           </div>
         </div>
@@ -640,7 +658,7 @@ export default function AdminDashboardPage() {
                 <div className="flex items-center gap-3">
                   <input
                     type="date"
-                    value={selectedDate}
+                    value={selectedDate || getPHDateString(new Date(), timezone)}
                     onChange={(e) => setSelectedDate(e.target.value)}
                     className="px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
@@ -747,9 +765,9 @@ export default function AdminDashboardPage() {
                             <td className="py-3 font-medium text-white whitespace-nowrap">
                               {log.profile?.full_name || log.employee?.full_name || log.profile?.email || log.employee?.email || 'Employee'}
                             </td>
-                            <td className="py-3 text-slate-300 font-mono whitespace-nowrap">{formatPHTime(log.time_in)}</td>
+                            <td className="py-3 text-slate-300 font-mono whitespace-nowrap">{formatPHTime(log.time_in, false, timezone)}</td>
                             <td className="py-3 text-slate-300 font-mono whitespace-nowrap">
-                              {log.time_out ? formatPHTime(log.time_out) : '--'}
+                              {log.time_out ? formatPHTime(log.time_out, false, timezone) : '--'}
                             </td>
                             <td className="py-3 font-mono text-slate-300 whitespace-nowrap">{log.hours_worked ?? '--'}</td>
                             <td className="py-3">
@@ -1052,7 +1070,7 @@ export default function AdminDashboardPage() {
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-rose-400 uppercase">{fa.attempt_type}</span>
                             <span className="text-slate-400">
-                              {formatPHTime(fa.created_at)}
+                              {formatPHTime(fa.created_at, false, timezone)}
                             </span>
                           </div>
                           <p className="text-rose-200 mt-1 font-medium">{fa.reason}</p>
@@ -1075,6 +1093,71 @@ export default function AdminDashboardPage() {
             <div className="space-y-6 max-w-xl">
               {/* Admin's Own Biometric Passkey */}
               <PasskeyManager />
+
+              {/* Company Timezone Configuration */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                <div className="flex items-center gap-2 mb-2 text-blue-400">
+                  <Globe className="w-5 h-5" />
+                  <h3 className="font-bold text-base text-white">Company Timezone & Regional Clock</h3>
+                </div>
+                <p className="text-xs text-slate-400 mb-4">
+                  Set the company&apos;s primary operational timezone. This applies universally to all employees, live dashboard clocks, attendance logs, grace period lateness checks, and DTR payroll records.
+                </p>
+
+                <div className="space-y-4 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1.5">
+                      Operational Timezone
+                    </label>
+                    <select
+                      value={settings.timezone || timezone || 'Asia/Manila'}
+                      onChange={(e) => {
+                        const newTz = e.target.value;
+                        setAppSettings({ ...settings, timezone: newTz });
+                      }}
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                      {SUPPORTED_TIMEZONES.map((tz) => (
+                        <option key={tz.value} value={tz.value}>
+                          {tz.label} ({tz.utcOffset})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Live Clock Preview in Selected Timezone */}
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block">
+                        Live Preview (Selected Timezone)
+                      </span>
+                      <span className="text-base font-bold text-emerald-400 font-mono mt-0.5 block">
+                        {new Date().toLocaleTimeString('en-US', {
+                          timeZone: settings.timezone || timezone || 'Asia/Manila',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                          hour12: true,
+                        })}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {new Date().toLocaleDateString('en-US', {
+                          timeZone: settings.timezone || timezone || 'Asia/Manila',
+                          weekday: 'long',
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-950/80 border border-blue-800/60 text-blue-300">
+                        {getTimezoneLabel(settings.timezone || timezone || 'Asia/Manila')}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
                 <h3 className="font-bold text-base text-white mb-4">System Biometrics &amp; Verification Rules</h3>

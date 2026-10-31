@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { formatPHTime, parseShiftToPHDate } from '@/lib/ph-time';
+import { formatPHTime, parseShiftToPHDate, getTimezoneLabel } from '@/lib/ph-time';
+import { getCompanyTimezone } from '@/lib/company-timezone';
 
 export interface DTRDayRecord {
   day: number;
@@ -118,6 +119,7 @@ export async function GET(req: NextRequest) {
       logsByEmpAndDate.get(log.employee_id)!.set(log.date, log);
     });
 
+    const activeTz = await getCompanyTimezone();
     const startObj = new Date(startDateStr);
     const endObj = new Date(endDateStr);
 
@@ -142,7 +144,7 @@ export async function GET(req: NextRequest) {
 
       while (curr <= endObj) {
         const dateStr = curr.toISOString().split('T')[0];
-        const dayOfWeek = curr.toLocaleDateString('en-US', { weekday: 'short' });
+        const dayOfWeek = curr.toLocaleDateString('en-US', { timeZone: activeTz, weekday: 'short' });
 
         const log = empLogs.get(dateStr);
 
@@ -159,17 +161,17 @@ export async function GET(req: NextRequest) {
 
         if (log) {
           daysWorked++;
-          timeInStr = log.time_in ? formatPHTime(log.time_in) : null;
-          timeOutStr = log.time_out ? formatPHTime(log.time_out) : null;
+          timeInStr = log.time_in ? formatPHTime(log.time_in, false, activeTz) : null;
+          timeOutStr = log.time_out ? formatPHTime(log.time_out, false, activeTz) : null;
 
           // Break records (or scheduled break default)
           const firstBreak = log.breaks?.[0];
           if (firstBreak) {
-            breakStartStr = firstBreak.break_start ? formatPHTime(firstBreak.break_start) : null;
-            breakEndStr = firstBreak.break_end ? formatPHTime(firstBreak.break_end) : null;
+            breakStartStr = firstBreak.break_start ? formatPHTime(firstBreak.break_start, false, activeTz) : null;
+            breakEndStr = firstBreak.break_end ? formatPHTime(firstBreak.break_end, false, activeTz) : null;
           } else if (emp.shift?.break_start && emp.shift?.break_end && log.time_in && log.time_out) {
-            breakStartStr = formatPHTime(parseShiftToPHDate(emp.shift.break_start, dateStr));
-            breakEndStr = formatPHTime(parseShiftToPHDate(emp.shift.break_end, dateStr));
+            breakStartStr = formatPHTime(parseShiftToPHDate(emp.shift.break_start, dateStr, activeTz), false, activeTz);
+            breakEndStr = formatPHTime(parseShiftToPHDate(emp.shift.break_end, dateStr, activeTz), false, activeTz);
           }
 
           const hoursWorked = log.hours_worked || 0;
@@ -259,6 +261,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       period: { startDate: startDateStr, endDate: endDateStr },
+      timezone: activeTz,
+      timezoneLabel: getTimezoneLabel(activeTz),
       dtrList,
     });
   } catch (err: unknown) {

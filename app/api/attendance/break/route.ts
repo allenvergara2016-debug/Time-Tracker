@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getPHDateString } from '@/lib/ph-time';
+import { getCompanyTimezone } from '@/lib/company-timezone';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,8 +15,9 @@ export async function POST(req: NextRequest) {
     const { action, attendance_id } = body; // action: 'break_in' | 'break_out'
 
     const adminClient = createAdminClient();
+    const activeTz = await getCompanyTimezone();
     const serverNow = new Date();
-    const today = getPHDateString(serverNow);
+    const today = getPHDateString(serverNow, activeTz);
 
     // Verify user has active attendance log today
     let targetAttendanceId = attendance_id;

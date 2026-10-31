@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getPHDateString } from '@/lib/ph-time';
+import { getCompanyTimezone } from '@/lib/company-timezone';
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,8 +21,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    const activeTz = await getCompanyTimezone();
     const { searchParams } = new URL(req.url);
-    const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
+    const date = searchParams.get('date') || getPHDateString(new Date(), activeTz);
     const departmentId = searchParams.get('department_id');
 
     const adminClient = createAdminClient();

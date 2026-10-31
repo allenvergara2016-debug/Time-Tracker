@@ -23,11 +23,13 @@ import {
   FileText,
 } from 'lucide-react';
 import DTRViewer from '@/components/reports/DTRViewer';
+import { useCompanyTimezone } from '@/lib/use-timezone';
 import { Profile, AttendanceLog, BreakRecord, NotificationPreference } from '@/types/database.types';
 
 export default function EmployeeDashboardPage() {
   const router = useRouter();
   const supabase = createClient();
+  const { timezone, timezoneLabel } = useCompanyTimezone();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [preferences, setPreferences] = useState<NotificationPreference | null>(null);
@@ -308,10 +310,10 @@ export default function EmployeeDashboardPage() {
             {/* Live Clock Card */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm text-center">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-                {currentTime ? currentTime.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }) : '...'} (Philippine Time)
+                {currentTime ? currentTime.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }) : '...'} ({timezoneLabel})
               </span>
               <div className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white my-1 tracking-tight font-mono">
-                {currentTime ? currentTime.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : '--:--:--'}
+                {currentTime ? currentTime.toLocaleTimeString('en-US', { timeZone: timezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : '--:--:--'}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1.5 mt-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-500" />
@@ -335,14 +337,14 @@ export default function EmployeeDashboardPage() {
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
                   <span className="text-[11px] text-slate-500 font-medium">Time In</span>
                   <div className="text-base font-bold text-slate-900 dark:text-white mt-1">
-                    {formatPHTime(todayLog.time_in)}
+                    {formatPHTime(todayLog.time_in, false, timezone)}
                   </div>
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
                   <span className="text-[11px] text-slate-500 font-medium">Time Out</span>
                   <div className="text-base font-bold text-slate-900 dark:text-white mt-1">
-                    {todayLog.time_out ? formatPHTime(todayLog.time_out) : '--:--'}
+                    {todayLog.time_out ? formatPHTime(todayLog.time_out, false, timezone) : '--:--'}
                   </div>
                 </div>
 
@@ -402,7 +404,7 @@ export default function EmployeeDashboardPage() {
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        In: {formatPHTime(h.time_in)} • Out: {h.time_out ? formatPHTime(h.time_out) : 'Pending'}
+                        In: {formatPHTime(h.time_in, false, timezone)} • Out: {h.time_out ? formatPHTime(h.time_out, false, timezone) : 'Pending'}
                       </p>
                       {h.late_minutes > 0 && (
                         <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">

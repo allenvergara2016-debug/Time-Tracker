@@ -24,3 +24,80 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ==========================================================================
+   PRINT / PDF EXPORT ISOLATION RULES
+   Ensure only the DTR Sheet is printed/exported, hiding all dashboard UI,
+   navigation, headers, footers, buttons, and action panels.
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  /* Reset body and html backgrounds for clean paper output */
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-height: 100% !important;
+  }
+
+  /* Hide everything on the page by default */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Only make the DTR print container and its descendants visible */
+  #dtr-print-area,
+  #dtr-print-area * {
+    visibility: visible;
+  }
+
+  #dtr-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  /* Each employee's DTR sheet forms an isolated single page */
+  .dtr-sheet-card {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 0 20mm 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+  }
+
+  /* Last sheet doesn't force a trailing blank page */
+  .dtr-sheet-card:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+    margin-bottom: 0 !important;
+  }
+
+  /* Strictly hide UI controls */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Retain table cell background highlights on printed paper */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
