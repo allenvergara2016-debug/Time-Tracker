@@ -261,6 +261,7 @@ export interface AppSettings {
   allowed_login_google: boolean;
   allowed_login_facebook: boolean;
   allowed_login_whatsapp: boolean;
+  timezone?: string;
   updated_at: string;
 }
 

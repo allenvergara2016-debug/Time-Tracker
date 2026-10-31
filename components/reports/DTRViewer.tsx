@@ -2,15 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Printer, Download, Calendar, DollarSign, Clock, Users, User, ArrowRight, Edit, Plus } from 'lucide-react';
+import { Printer, Download, Calendar, DollarSign, Clock, Users, User, ArrowRight, Edit, Plus, FileText } from 'lucide-react';
 import { EmployeeDTR, DTRDayRecord } from '@/app/api/reports/dtr/route';
 import { formatPHTime } from '@/lib/ph-time';
+import { exportDTRListToPDF } from '@/lib/dtr-pdf';
+import { useCompanyTimezone } from '@/lib/use-timezone';
 
 interface Props {
   isAdmin?: boolean;
 }
 
 export default function DTRViewer({ isAdmin = false }: Props) {
+  const { timezone, timezoneLabel } = useCompanyTimezone();
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth() + 1;
@@ -225,6 +228,13 @@ export default function DTRViewer({ isAdmin = false }: Props) {
     XLSX.writeFile(workbook, `DTR_Payroll_${startDate}_to_${endDate}.xlsx`);
   };
 
+  // Export to PDF (Direct download, 1 employee per page)
+  const handleExportPDF = () => {
+    if (dtrList.length === 0) return;
+    const singleName = selectedEmployeeId !== 'all' ? dtrList[0]?.employee.fullName : undefined;
+    exportDTRListToPDF(dtrList, startDate, endDate, singleName, timezone);
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -277,7 +287,15 @@ export default function DTRViewer({ isAdmin = false }: Props) {
           </div>
 
           {/* Export Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleExportPDF}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+              title="Download pure DTR PDF (1 page per employee)"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Download PDF</span>
+            </button>
             <button
               onClick={handleExportExcel}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
@@ -288,9 +306,10 @@ export default function DTRViewer({ isAdmin = false }: Props) {
             <button
               onClick={handlePrint}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+              title="Print DTR or Save as PDF via browser"
             >
               <Printer className="w-4 h-4" />
-              <span>Print / Save PDF</span>
+              <span>Print DTR</span>
             </button>
           </div>
         </div>
@@ -334,22 +353,35 @@ export default function DTRViewer({ isAdmin = false }: Props) {
           No attendance records found for this selected date range.
         </div>
       ) : (
-        <div className="space-y-12">
+        <div id="dtr-print-area" className="space-y-12">
           {dtrList.map((dtr) => (
             <div
               key={dtr.employee.id}
-              className="bg-white text-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-300 shadow-md max-w-4xl mx-auto print:max-w-none print:shadow-none print:border-none print:p-0 print:m-0 print:break-after-page"
+              className="dtr-sheet-card bg-white text-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-300 shadow-md max-w-4xl mx-auto print:max-w-none print:shadow-none print:border-none print:p-0 print:m-0"
             >
               {/* Official DTR Header */}
-              <div className="text-center border-b-2 border-slate-800 pb-4 mb-4">
+              <div className="relative text-center border-b-2 border-slate-800 pb-4 mb-4">
+                {/* Single employee PDF button on card (screen only) */}
+                <div className="print:hidden absolute right-0 top-0">
+                  <button
+                    onClick={() => exportDTRListToPDF([dtr], startDate, endDate, dtr.employee.fullName, timezone)}
+                    className="px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-xl text-xs font-semibold flex items-center gap-1 transition shadow-2xs"
+                    title={`Download ${dtr.employee.fullName}'s DTR PDF only`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Export PDF</span>
+                  </button>
+                </div>
+
                 <span className="text-[11px] font-mono tracking-widest text-slate-500 uppercase">
                   Civil Service Form No. 48 / Standard Corporate Timesheet
                 </span>
                 <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900 mt-1">
                   DAILY TIME RECORD
                 </h2>
-                <div className="text-sm font-bold text-blue-800 mt-1">
-                  Period: {dtr.period.formattedRange}
+                <div className="text-sm font-bold text-blue-800 mt-1 flex items-center justify-center gap-2">
+                  <span>Period: {dtr.period.formattedRange}</span>
+                  <span className="text-xs font-normal text-slate-500">({timezoneLabel})</span>
                 </div>
               </div>
 
