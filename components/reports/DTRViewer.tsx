@@ -26,6 +26,8 @@ export default function DTRViewer({ isAdmin = false }: Props) {
     `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(daysInCurrentMonth).padStart(2, '0')}`
   );
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('all');
+  const [selectedCompanyTag, setSelectedCompanyTag] = useState<string>('all');
+  const [allEmployees, setAllEmployees] = useState<Array<{ id: string; fullName: string; companyTag?: string | null }>>([]);
   const [dtrList, setDtrList] = useState<EmployeeDTR[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -42,6 +44,7 @@ export default function DTRViewer({ isAdmin = false }: Props) {
   const [editLateMins, setEditLateMins] = useState('0');
   const [editUnderMins, setEditUnderMins] = useState('0');
   const [editOtMins, setEditOtMins] = useState('0');
+  const [editOtApproved, setEditOtApproved] = useState(true);
   const [editStatus, setEditStatus] = useState('present');
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
@@ -77,8 +80,13 @@ export default function DTRViewer({ isAdmin = false }: Props) {
         start_date: startDate,
         end_date: endDate,
       });
-      if (isAdmin && selectedEmployeeId) {
-        q.set('employee_id', selectedEmployeeId);
+      if (isAdmin) {
+        if (selectedEmployeeId && selectedEmployeeId !== 'all') {
+          q.set('employee_id', selectedEmployeeId);
+        }
+        if (selectedCompanyTag && selectedCompanyTag !== 'all') {
+          q.set('company_tag', selectedCompanyTag);
+        }
       }
 
       const res = await fetch(`/api/reports/dtr?${q.toString()}`);
@@ -93,9 +101,29 @@ export default function DTRViewer({ isAdmin = false }: Props) {
     }
   };
 
+  // Load all employees once for the filter dropdown
+  useEffect(() => {
+    if (isAdmin) {
+      fetch('/api/admin/employees')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.employees) {
+            setAllEmployees(
+              data.employees.map((e: any) => ({
+                id: e.id,
+                fullName: e.full_name,
+                companyTag: e.company_tag || null,
+              }))
+            );
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isAdmin]);
+
   useEffect(() => {
     fetchDTR();
-  }, [startDate, endDate, selectedEmployeeId]);
+  }, [startDate, endDate, selectedEmployeeId, selectedCompanyTag]);
 
   // Open edit modal for a day
   const handleOpenEditDTR = (employeeId: string, employeeName: string, day: DTRDayRecord) => {
@@ -123,6 +151,7 @@ export default function DTRViewer({ isAdmin = false }: Props) {
     setEditLateMins(day.lateMinutes.toString());
     setEditUnderMins(day.undertimeMinutes.toString());
     setEditOtMins(day.overtimeMinutes.toString());
+    setEditOtApproved(true);
     setEditStatus(day.status || 'present');
     setEditError('');
   };
@@ -147,6 +176,7 @@ export default function DTRViewer({ isAdmin = false }: Props) {
           late_minutes: Number(editLateMins) || 0,
           undertime_minutes: Number(editUnderMins) || 0,
           overtime_minutes: Number(editOtMins) || 0,
+          overtime_approved: editOtApproved,
           status: editStatus,
         }),
       });
@@ -184,10 +214,11 @@ export default function DTRViewer({ isAdmin = false }: Props) {
         ? 'Rate not set'
         : `₱${Number(dtr.employee.overtimeRatePerHour).toFixed(2)}/hr`;
 
+      const formHeader = (dtr.employee.companyTag || 'Civil Service Form No. 48').toUpperCase();
       const sheetData: (string | number)[][] = [
-        ['CIVIL SERVICE FORM NO. 48 / DAILY TIME RECORD'],
+        [`${formHeader} / DAILY TIME RECORD`],
         ['DTR with late, undertime, and overtime computation based on management-set rates'],
-        [`Employee Name: ${dtr.employee.fullName}`, `Department: ${dtr.employee.department}`],
+        [`Employee Name: ${dtr.employee.fullName}`, `Department: ${dtr.employee.department}`, `Company Tag: ${dtr.employee.companyTag || 'None'}`],
         [`Period Covered: ${dtr.period.formattedRange}`],
         [`Daily Wage Rate: ${dailyRateStr}`, `OT Rate/Hour: ${otRateStr}`],
         [],
@@ -258,7 +289,7 @@ export default function DTRViewer({ isAdmin = false }: Props) {
   const handleExportPDF = () => {
     if (dtrList.length === 0) return;
     const singleName = selectedEmployeeId !== 'all' ? dtrList[0]?.employee.fullName : undefined;
-    exportDTRListToPDF(dtrList, startDate, endDate, singleName, timezone);
+    exportDTRListToPDF(dtrList, startDate, endDate, singleName, timezone, selectedCompanyTag);
   };
 
   const handlePrint = () => {
@@ -292,6 +323,26 @@ export default function DTRViewer({ isAdmin = false }: Props) {
               />
             </div>
 
+            {/* Company Tag selector (Admin only) */}
+            {isAdmin && (
+              <div className="flex items-center gap-2">
+                <label className="font-semibold text-slate-500">Company Tag:</label>
+                <select
+                  value={selectedCompanyTag}
+                  onChange={(e) => {
+                    setSelectedCompanyTag(e.target.value);
+                    setSelectedEmployeeId('all');
+                  }}
+                  className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                >
+                  <option value="all">🏢 All Tags / Companies</option>
+                  <option value="Allen Care Staff">Allen Care Staff</option>
+                  <option value="Allen V Fruits">Allen V Fruits</option>
+                  <option value="none">Untagged</option>
+                </select>
+              </div>
+            )}
+
             {/* Employee selector (Admin only) */}
             {isAdmin && (
               <div className="flex items-center gap-2">
@@ -302,11 +353,17 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                   className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
                 >
                   <option value="all">⭐ All Employees (Batch)</option>
-                  {dtrList.map((dtr) => (
-                    <option key={dtr.employee.id} value={dtr.employee.id}>
-                      {dtr.employee.fullName}
-                    </option>
-                  ))}
+                  {(allEmployees.length > 0 ? allEmployees : dtrList.map((d) => ({ id: d.employee.id, fullName: d.employee.fullName, companyTag: d.employee.companyTag })))
+                    .filter((emp) => {
+                      if (selectedCompanyTag === 'all') return true;
+                      if (selectedCompanyTag === 'none') return !emp.companyTag;
+                      return emp.companyTag === selectedCompanyTag;
+                    })
+                    .map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.fullName} {emp.companyTag ? `(${emp.companyTag})` : ''}
+                      </option>
+                    ))}
                 </select>
               </div>
             )}
@@ -399,8 +456,8 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                   </button>
                 </div>
 
-                <span className="text-[11px] font-mono tracking-widest text-slate-500 uppercase block">
-                  Civil Service Form No. 48 / Standard Corporate Timesheet
+                <span className="text-[11px] font-mono tracking-widest text-slate-500 uppercase block font-semibold">
+                  {(dtr.employee.companyTag || 'Civil Service Form No. 48').toUpperCase()} / STANDARD CORPORATE TIMESHEET
                 </span>
                 <span className="text-[10px] font-medium text-slate-400 block mt-0.5">
                   DTR with late, undertime, and overtime computation based on management-set rates
@@ -421,8 +478,23 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                   <span className="font-bold text-slate-900 text-sm">{dtr.employee.fullName}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 font-medium block">Department:</span>
-                  <span className="font-semibold text-slate-800">{dtr.employee.department}</span>
+                  <span className="text-slate-500 font-medium block">Department / Tag:</span>
+                  <div className="font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                    <span>{dtr.employee.department}</span>
+                    {dtr.employee.companyTag && (
+                      <span
+                        className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          dtr.employee.companyTag === 'Allen Care Staff'
+                            ? 'bg-sky-50 text-sky-700 border-sky-300'
+                            : dtr.employee.companyTag === 'Allen V Fruits'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            : 'bg-slate-100 text-slate-700 border-slate-300'
+                        }`}
+                      >
+                        {dtr.employee.companyTag}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <span className="text-slate-500 font-medium block">Daily Wage Rate:</span>
@@ -755,6 +827,19 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
                   />
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <div>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200 block text-xs">Overtime Approved</span>
+                  <span className="text-[10px] text-slate-500">Enable to credit overtime hours &amp; pay on DTR</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={editOtApproved}
+                  onChange={(e) => setEditOtApproved(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 accent-blue-600 cursor-pointer"
+                />
               </div>
 
               <div>

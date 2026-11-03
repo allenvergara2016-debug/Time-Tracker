@@ -40,6 +40,7 @@ export async function PUT(
       overtime_rate_per_hour,
       overtime_multiplier,
       is_active,
+      company_tag,
     } = body;
 
     const adminClient = createAdminClient();
@@ -79,6 +80,7 @@ export async function PUT(
       if (phone !== undefined) updatePayload.phone = phone;
       if (whatsapp_number !== undefined) updatePayload.whatsapp_number = whatsapp_number || null;
       if (google_email !== undefined) updatePayload.google_email = google_email ? String(google_email).trim().toLowerCase() : null;
+      if (company_tag !== undefined) updatePayload.company_tag = company_tag ? String(company_tag).trim() : null;
       if (is_active !== undefined) updatePayload.is_active = is_active;
     }
 

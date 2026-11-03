@@ -435,19 +435,33 @@ export async function POST(req: NextRequest) {
       const timeInDate = new Date(activeLog.time_in);
       const totalHours = Math.max(0, (serverNow.getTime() - timeInDate.getTime()) / (1000 * 60 * 60));
 
-      // Calculate undertime or overtime in Philippine Time
+      // Calculate undertime and overtime (counting both pre-shift early clock-in and post-shift late clock-out)
       let undertimeMinutes = 0;
-      let overtimeMinutes = 0;
+      let preShiftOtMinutes = 0;
+      let postShiftOtMinutes = 0;
 
-      if (shift && shift.end_time) {
-        const shiftEnd = parseShiftToPHDate(shift.end_time, today);
+      if (shift) {
+        // 1. Pre-shift Overtime: Early clock-in before shift start time
+        if (shift.start_time && activeLog.time_in) {
+          const shiftStart = parseShiftToPHDate(shift.start_time, today, activeTz);
+          if (timeInDate < shiftStart) {
+            preShiftOtMinutes = Math.round((shiftStart.getTime() - timeInDate.getTime()) / (60 * 1000));
+          }
+        }
 
-        if (serverNow < shiftEnd) {
-          undertimeMinutes = Math.round((shiftEnd.getTime() - serverNow.getTime()) / (60 * 1000));
-        } else if (serverNow > shiftEnd) {
-          overtimeMinutes = Math.round((serverNow.getTime() - shiftEnd.getTime()) / (60 * 1000));
+        // 2. Post-shift Overtime or Undertime: Clock-out relative to shift end time
+        if (shift.end_time) {
+          const shiftEnd = parseShiftToPHDate(shift.end_time, today, activeTz);
+
+          if (serverNow < shiftEnd) {
+            undertimeMinutes = Math.round((shiftEnd.getTime() - serverNow.getTime()) / (60 * 1000));
+          } else if (serverNow > shiftEnd) {
+            postShiftOtMinutes = Math.round((serverNow.getTime() - shiftEnd.getTime()) / (60 * 1000));
+          }
         }
       }
+
+      const totalOvertimeMinutes = preShiftOtMinutes + postShiftOtMinutes;
 
       const { data: updatedLog, error: updateErr } = await adminClient
         .from('attendance_logs')
@@ -459,7 +473,7 @@ export async function POST(req: NextRequest) {
           location_out_id: matchedLocation.id,
           hours_worked: Number(totalHours.toFixed(2)),
           undertime_minutes: undertimeMinutes,
-          overtime_minutes: overtimeMinutes,
+          overtime_minutes: totalOvertimeMinutes,
           daily_rate: activeLog.daily_rate || snapDaily,
           hourly_rate: activeLog.hourly_rate || snapHourly,
           overtime_rate_per_hour: activeLog.overtime_rate_per_hour || snapOtRate,
@@ -485,9 +499,11 @@ export async function POST(req: NextRequest) {
         serverTime: serverTimestamp,
         verificationMethod,
         hoursWorked: Number(totalHours.toFixed(2)),
-        overtimeMinutes,
+        overtimeMinutes: totalOvertimeMinutes,
         undertimeMinutes,
-        message: `Timed Out successfully at ${matchedLocation.name}. Hours worked: ${totalHours.toFixed(1)} hrs.`,
+        message: totalOvertimeMinutes > 0
+          ? `Timed Out at ${matchedLocation.name}. Hours worked: ${totalHours.toFixed(1)} hrs (${totalOvertimeMinutes}m total OT: ${preShiftOtMinutes}m before shift, ${postShiftOtMinutes}m after shift).`
+          : `Timed Out successfully at ${matchedLocation.name}. Hours worked: ${totalHours.toFixed(1)} hrs.`,
       });
     }
   } catch (err: unknown) {

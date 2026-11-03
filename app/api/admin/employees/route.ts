@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
       overtime_rate_per_hour = 0,
       overtime_multiplier = 1.25,
       role = 'employee',
+      company_tag,
     } = body;
 
     const computedDailyRate = Number(daily_rate) || 0;
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
         is_active: true,
         must_change_password: true, // Force password change on first login!
         consent_given: false,
+        company_tag: company_tag ? String(company_tag).trim() : null,
       });
 
     if (profileError) {

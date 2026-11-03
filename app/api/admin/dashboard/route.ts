@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     // 1. Fetch all active employees
     let employeesQuery = adminClient
       .from('profiles')
-      .select('id, full_name, email, role, avatar_url, phone, is_active, department_id, shift_id, department:departments(name), shift:shifts(name, start_time, end_time)')
+      .select('id, full_name, email, role, avatar_url, phone, company_tag, is_active, department_id, shift_id, department:departments(name), shift:shifts(name, start_time, end_time)')
       .eq('role', 'employee')
       .eq('is_active', true);
 

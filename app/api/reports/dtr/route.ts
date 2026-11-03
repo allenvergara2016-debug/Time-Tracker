@@ -38,6 +38,7 @@ export interface EmployeeDTR {
     email: string;
     department: string;
     shift: string;
+    companyTag?: string | null;
     dailyRate: number | null;
     hourlyRate: number | null;
     overtimeRatePerHour: number | null;
@@ -85,6 +86,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const now = new Date();
     const requestedEmployeeId = searchParams.get('employee_id');
+    const requestedCompanyTag = searchParams.get('company_tag');
 
     // Date range support: start_date & end_date OR year & month
     let startDateStr = searchParams.get('start_date');
@@ -106,8 +108,17 @@ export async function GET(req: NextRequest) {
     if (!isAdmin) {
       // Regular employees can only view their own DTR
       employeesQuery = employeesQuery.eq('id', user.id);
-    } else if (requestedEmployeeId && requestedEmployeeId !== 'all') {
-      employeesQuery = employeesQuery.eq('id', requestedEmployeeId);
+    } else {
+      if (requestedEmployeeId && requestedEmployeeId !== 'all') {
+        employeesQuery = employeesQuery.eq('id', requestedEmployeeId);
+      }
+      if (requestedCompanyTag && requestedCompanyTag !== 'all') {
+        if (requestedCompanyTag === 'none' || requestedCompanyTag === 'untagged') {
+          employeesQuery = employeesQuery.is('company_tag', null);
+        } else {
+          employeesQuery = employeesQuery.eq('company_tag', requestedCompanyTag);
+        }
+      }
     }
 
     const { data: employees, error: empErr } = await employeesQuery;
@@ -177,8 +188,8 @@ export async function GET(req: NextRequest) {
     });
 
     const activeTz = await getCompanyTimezone();
-    const startObj = new Date(startDateStr);
-    const endObj = new Date(endDateStr);
+    const [startYear, startMonth, startDay] = startDateStr.split('-').map(Number);
+    const [endYear, endMonth, endDay] = endDateStr.split('-').map(Number);
 
     const dtrList: EmployeeDTR[] = (employees || []).map((emp) => {
       const empLogs = logsByEmpAndDate.get(emp.id) || new Map();
@@ -215,13 +226,17 @@ export async function GET(req: NextRequest) {
       let totalOvertimePay = 0;
       let employeeHasAnyRateNotSet = false;
 
-      // Loop through each day in the date range
-      const curr = new Date(startObj);
-      let dayIndex = 1;
+      // Loop through each calendar day in the date range using UTC calendar dates
+      const curr = new Date(Date.UTC(startYear, startMonth - 1, startDay));
+      const endUTC = new Date(Date.UTC(endYear, endMonth - 1, endDay));
 
-      while (curr <= endObj) {
-        const dateStr = curr.toISOString().split('T')[0];
-        const dayOfWeek = curr.toLocaleDateString('en-US', { timeZone: activeTz, weekday: 'short' });
+      while (curr <= endUTC) {
+        const y = curr.getUTCFullYear();
+        const m = String(curr.getUTCMonth() + 1).padStart(2, '0');
+        const dayOfMonth = curr.getUTCDate();
+        const d = String(dayOfMonth).padStart(2, '0');
+        const dateStr = `${y}-${m}-${d}`;
+        const dayOfWeek = curr.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short' });
         const holidayRecord = holidayMap.get(dateStr);
         const isRestDay = dayOfWeek === 'Sun' || dayOfWeek === 'Sat';
 
@@ -255,23 +270,51 @@ export async function GET(req: NextRequest) {
           }
 
           const hoursWorked = log.hours_worked || 0;
-          otMinutes = log.overtime_minutes || 0;
           lateMins = log.late_minutes || 0;
           underMins = log.undertime_minutes || 0;
           status = log.status || 'present';
 
-          // Overtime minutes rounding rule
+          // Overtime counts both before shift start (early clock-in) and after shift end (late clock-out)
+          let preShiftOtMins = 0;
+          let postShiftOtMins = 0;
+
+          if (emp.shift?.start_time && log.time_in) {
+            const shiftStart = parseShiftToPHDate(emp.shift.start_time, dateStr, activeTz);
+            const tIn = new Date(log.time_in);
+            if (tIn < shiftStart) {
+              preShiftOtMins = Math.round((shiftStart.getTime() - tIn.getTime()) / (60 * 1000));
+            }
+          }
+
+          if (emp.shift?.end_time && log.time_out) {
+            const shiftEnd = parseShiftToPHDate(emp.shift.end_time, dateStr, activeTz);
+            const tOut = new Date(log.time_out);
+            if (tOut > shiftEnd) {
+              postShiftOtMins = Math.round((tOut.getTime() - shiftEnd.getTime()) / (60 * 1000));
+            }
+          }
+
+          const dynamicShiftOtMins = preShiftOtMins + postShiftOtMins;
+          otMinutes = Math.max(log.overtime_minutes || 0, dynamicShiftOtMins);
+
+          // Overtime minutes rounding rule (exact / 30-min block / 1-hour block)
           let computedOtMinutes = otMinutes;
           if (overtimeRoundingRule === '30_min_block') {
             computedOtMinutes = Math.floor(otMinutes / 30) * 30;
+          } else if (overtimeRoundingRule === '1_hour_block') {
+            computedOtMinutes = Math.floor(otMinutes / 60) * 60;
           }
 
-          // Overtime approval check
-          const isOtApproved = !requireOvertimeApproval || Boolean(log.overtime_approved);
+          // Overtime approval check: approved if approval setting is off or if explicitly approved / not rejected
+          const isOtApproved = !requireOvertimeApproval || log.overtime_approved !== false;
           otHours = isOtApproved ? Number((computedOtMinutes / 60).toFixed(2)) : 0;
 
-          // Standard regular hours capped at hoursPerDay
-          regularHours = Number(Math.min(hoursPerDay, Math.max(0, hoursWorked - (otMinutes / 60))).toFixed(2));
+          // Regular hours representing standard scheduled work up to hoursPerDay
+          if (hoursWorked >= hoursPerDay) {
+            regularHours = hoursPerDay;
+          } else {
+            regularHours = Number(Math.max(0, hoursWorked).toFixed(2));
+          }
         }
 
         // Wage and deduction computation
@@ -301,9 +344,12 @@ export async function GET(req: NextRequest) {
           if (log) {
             if (regularHours >= hoursPerDay && deductionMinutes === 0) {
               dayRegPay = regRate;
+            } else if (deductionMinutes > 0) {
+              // Deduct tardiness / undertime from daily rate (prevents double-deduction)
+              dayRegPay = Number(Math.max(0, regRate - deductionAmount).toFixed(2));
             } else {
-              const baseEarned = Number(((regularHours / hoursPerDay) * regRate).toFixed(2));
-              dayRegPay = Number(Math.max(0, baseEarned - deductionAmount).toFixed(2));
+              // Pro-rated by regular hours worked
+              dayRegPay = Number(((regularHours / hoursPerDay) * regRate).toFixed(2));
             }
           } else {
             dayRegPay = 0;
@@ -326,7 +372,7 @@ export async function GET(req: NextRequest) {
           dayOtPay = Number((otHours * applicableOtRate).toFixed(2));
           totalDailyWage = Number(((dayRegPay || 0) + dayOtPay).toFixed(2));
 
-          formula = `Reg: (₱${regRate.toFixed(2)} ÷ ${hoursPerDay}h) - ded. ₱${deductionAmount.toFixed(2)} | ${otRateTypeLabel}: ${otHours}h × ₱${applicableOtRate.toFixed(2)}/h`;
+          formula = `Reg: ₱${(dayRegPay || 0).toFixed(2)} (₱${regRate.toFixed(2)}/day${deductionAmount > 0 ? ` - ded. ₱${deductionAmount.toFixed(2)}` : ''}) | ${otRateTypeLabel}: ${otHours}h × ₱${applicableOtRate.toFixed(2)}/h = ₱${dayOtPay.toFixed(2)}`;
 
           totalRegularPay += dayRegPay || 0;
           totalOvertimePay += dayOtPay;
@@ -338,7 +384,7 @@ export async function GET(req: NextRequest) {
         totalUndertimeMinutes += underMins;
 
         dayRecords.push({
-          day: dayIndex,
+          day: dayOfMonth,
           date: dateStr,
           dayOfWeek,
           timeIn: timeInStr,
@@ -364,8 +410,7 @@ export async function GET(req: NextRequest) {
           holidayName: holidayRecord?.name,
         });
 
-        curr.setDate(curr.getDate() + 1);
-        dayIndex++;
+        curr.setUTCDate(curr.getUTCDate() + 1);
       }
 
       // Check overall employee rate state
@@ -394,6 +439,7 @@ export async function GET(req: NextRequest) {
           email: emp.email,
           department: emp.department?.name || 'General',
           shift: emp.shift?.name || 'Regular Shift',
+          companyTag: emp.company_tag || null,
           dailyRate: latestEffectiveRate ? Number(latestEffectiveRate.regular_rate) : null,
           hourlyRate: latestEffectiveRate ? Number((Number(latestEffectiveRate.regular_rate) / hoursPerDay).toFixed(2)) : null,
           overtimeRatePerHour: latestEffectiveRate ? Number(latestEffectiveRate.overtime_rate_per_hour) : null,

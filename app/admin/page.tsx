@@ -100,6 +100,7 @@ export default function AdminDashboardPage() {
   const [empPassword, setEmpPassword] = useState('');
   const [empDeptId, setEmpDeptId] = useState('');
   const [empShiftId, setEmpShiftId] = useState('');
+  const [empCompanyTag, setEmpCompanyTag] = useState('');
   const [empDailyRate, setEmpDailyRate] = useState('610.00');
   const [empOvertimeRate, setEmpOvertimeRate] = useState('114.38');
   const [empRole, setEmpRole] = useState<'employee' | 'admin'>('employee');
@@ -110,6 +111,7 @@ export default function AdminDashboardPage() {
   const [editFullName, setEditFullName] = useState('');
   const [editDeptId, setEditDeptId] = useState('');
   const [editShiftId, setEditShiftId] = useState('');
+  const [editCompanyTag, setEditCompanyTag] = useState('');
   const [editDailyRate, setEditDailyRate] = useState('');
   const [editOvertimeRate, setEditOvertimeRate] = useState('');
   const [editPhone, setEditPhone] = useState('');
@@ -119,6 +121,9 @@ export default function AdminDashboardPage() {
   const [editRole, setEditRole] = useState<'employee' | 'admin'>('employee');
   const [editIsActive, setEditIsActive] = useState(true);
   const [editError, setEditError] = useState('');
+
+  // Directory filter by Company Tag
+  const [directoryCompanyTagFilter, setDirectoryCompanyTagFilter] = useState('all');
 
   // New Shift Modal
   const [showAddShiftModal, setShowAddShiftModal] = useState(false);
@@ -335,6 +340,7 @@ export default function AdminDashboardPage() {
           password: empPassword,
           department_id: empDeptId || null,
           shift_id: empShiftId || null,
+          company_tag: empCompanyTag ? empCompanyTag.trim() : null,
           daily_rate: Number(empDailyRate) || 0,
           overtime_rate_per_hour: Number(empOvertimeRate) || 0,
           role: empRole,
@@ -349,6 +355,7 @@ export default function AdminDashboardPage() {
         setEmpFullName('');
         setEmpEmail('');
         setEmpPassword('');
+        setEmpCompanyTag('');
         setEmpDailyRate('610.00');
         setEmpOvertimeRate('114.38');
         loadAllEntities();
@@ -364,6 +371,7 @@ export default function AdminDashboardPage() {
     setEditFullName(emp.full_name);
     setEditDeptId(emp.department_id || '');
     setEditShiftId(emp.shift_id || '');
+    setEditCompanyTag(emp.company_tag || '');
     setEditDailyRate((emp.daily_rate || 0).toString());
     setEditOvertimeRate((emp.overtime_rate_per_hour || 0).toString());
     setEditPhone(emp.phone || '');
@@ -388,6 +396,7 @@ export default function AdminDashboardPage() {
           full_name: editFullName,
           department_id: editDeptId || null,
           shift_id: editShiftId || null,
+          company_tag: editCompanyTag ? editCompanyTag.trim() : null,
           daily_rate: Number(editDailyRate) || 0,
           overtime_rate_per_hour: Number(editOvertimeRate) || 0,
           phone: editPhone || null,
@@ -1265,7 +1274,20 @@ export default function AdminDashboardPage() {
                     Public sign-up is disabled. Accounts are securely provisioned here by administrators.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                    <span className="text-[11px] text-slate-400 font-medium">Tag:</span>
+                    <select
+                      value={directoryCompanyTagFilter}
+                      onChange={(e) => setDirectoryCompanyTagFilter(e.target.value)}
+                      className="bg-transparent text-white text-xs font-semibold focus:outline-none cursor-pointer"
+                    >
+                      <option value="all" className="bg-slate-900 text-white">All Companies / Tags</option>
+                      <option value="Allen Care Staff" className="bg-slate-900 text-sky-400">Allen Care Staff</option>
+                      <option value="Allen V Fruits" className="bg-slate-900 text-emerald-400">Allen V Fruits</option>
+                      <option value="none" className="bg-slate-900 text-slate-400">Untagged</option>
+                    </select>
+                  </div>
                   <button
                     onClick={() => {
                       setBulkCsvText('');
@@ -1303,9 +1325,32 @@ export default function AdminDashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {employees.map((emp) => (
+                    {employees
+                      .filter((emp) => {
+                        if (directoryCompanyTagFilter === 'all') return true;
+                        if (directoryCompanyTagFilter === 'none') return !emp.company_tag;
+                        return emp.company_tag === directoryCompanyTagFilter;
+                      })
+                      .map((emp) => (
                       <tr key={emp.id} className="hover:bg-slate-800/30">
-                        <td className="py-3 font-medium text-white">{emp.full_name}</td>
+                        <td className="py-3 font-medium text-white">
+                          <div>{emp.full_name}</div>
+                          {emp.company_tag && (
+                            <div className="mt-1">
+                              <span
+                                className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  emp.company_tag === 'Allen Care Staff'
+                                    ? 'bg-sky-950/70 text-sky-400 border-sky-800/60'
+                                    : emp.company_tag === 'Allen V Fruits'
+                                    ? 'bg-emerald-950/70 text-emerald-400 border-emerald-800/60'
+                                    : 'bg-slate-800 text-slate-300 border-slate-700'
+                                }`}
+                              >
+                                {emp.company_tag}
+                              </span>
+                            </div>
+                          )}
+                        </td>
                         <td className="py-3 text-slate-400">{emp.email}</td>
                         <td className="py-3">
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-800 text-slate-300">
@@ -1864,7 +1909,7 @@ export default function AdminDashboardPage() {
                     </div>
 
                     <div>
-                      <label className="block text-slate-300 font-medium mb-1 text-xs">Overtime Rounding Rule</label>
+                      <label className="block text-slate-300 font-medium mb-1 text-xs">Overtime Minimum &amp; Rounding</label>
                       <select
                         value={settings.overtime_rounding_rule || 'exact'}
                         onChange={(e) =>
@@ -1872,10 +1917,11 @@ export default function AdminDashboardPage() {
                         }
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs"
                       >
-                        <option value="exact">Exact (Nearest minute)</option>
-                        <option value="30_min_block">Full 30-Minute Blocks only</option>
+                        <option value="exact">Exact (Per-minute basis)</option>
+                        <option value="30_min_block">Full 30-Minute Blocks (Min. 30 mins)</option>
+                        <option value="1_hour_block">Full 1-Hour Blocks (Must render at least 1 hour)</option>
                       </select>
-                      <span className="text-[10px] text-slate-500">Applies after shift end and grace period</span>
+                      <span className="text-[10px] text-slate-500">e.g. 1-hour block requires rendering at least 60 mins of OT</span>
                     </div>
                   </div>
 
@@ -2186,6 +2232,19 @@ export default function AdminDashboardPage() {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-slate-300 mb-1 font-medium">Company Tag (Optional)</label>
+                <select
+                  value={empCompanyTag}
+                  onChange={(e) => setEmpCompanyTag(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                >
+                  <option value="">-- None / Untagged --</option>
+                  <option value="Allen Care Staff">Allen Care Staff</option>
+                  <option value="Allen V Fruits">Allen V Fruits</option>
+                </select>
+              </div>
+
               {(currentUserProfile?.email === 'admin@company.com' || currentUserProfile?.is_super_admin) && (
                 <div>
                   <label className="block text-slate-300 mb-1 font-medium">Account Role (Super Admin Privilege)</label>
@@ -2450,6 +2509,19 @@ export default function AdminDashboardPage() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-medium">Company Tag (Optional)</label>
+                <select
+                  value={editCompanyTag}
+                  onChange={(e) => setEditCompanyTag(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs"
+                >
+                  <option value="">-- None / Untagged --</option>
+                  <option value="Allen Care Staff">Allen Care Staff</option>
+                  <option value="Allen V Fruits">Allen V Fruits</option>
+                </select>
               </div>
 
               {/* Social Channels: WhatsApp & Gmail */}

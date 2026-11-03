@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       late_minutes,
       undertime_minutes,
       overtime_minutes,
+      overtime_approved,
       status = 'present',
     } = body;
 
@@ -65,6 +66,45 @@ export async function POST(req: NextRequest) {
       hoursWorked = Number(Math.max(0, (diffMs - breakMs) / (1000 * 60 * 60)).toFixed(2));
     }
 
+    // Auto-calculate pre-shift and post-shift overtime if not explicitly overridden
+    let finalOtMinutes = Number(overtime_minutes) || 0;
+    let finalLateMinutes = Number(late_minutes) || 0;
+    let finalUndertimeMinutes = Number(undertime_minutes) || 0;
+
+    if (timeInIso && timeOutIso && (overtime_minutes === undefined || overtime_minutes === null || Number(overtime_minutes) === 0)) {
+      const { data: empProf } = await adminClient
+        .from('profiles')
+        .select('shift_id, shift:shifts(start_time, end_time, grace_period_mins)')
+        .eq('id', employee_id)
+        .maybeSingle();
+
+      const shiftData = empProf?.shift as any;
+      if (shiftData) {
+        const tIn = new Date(timeInIso);
+        const tOut = new Date(timeOutIso);
+        let preShiftOt = 0;
+        let postShiftOt = 0;
+
+        if (shiftData.start_time) {
+          const sStart = parseShiftToPHDate(shiftData.start_time, date, activeTz);
+          if (tIn < sStart) {
+            preShiftOt = Math.round((sStart.getTime() - tIn.getTime()) / 60000);
+          }
+        }
+
+        if (shiftData.end_time) {
+          const sEnd = parseShiftToPHDate(shiftData.end_time, date, activeTz);
+          if (tOut > sEnd) {
+            postShiftOt = Math.round((tOut.getTime() - sEnd.getTime()) / 60000);
+          }
+        }
+
+        if (preShiftOt + postShiftOt > 0) {
+          finalOtMinutes = preShiftOt + postShiftOt;
+        }
+      }
+    }
+
     // Check if an attendance log already exists for this date and employee
     const { data: existingLog } = await adminClient
       .from('attendance_logs')
@@ -75,6 +115,10 @@ export async function POST(req: NextRequest) {
 
     let targetLogId = existingLog?.id;
 
+    const isApprovedOt = overtime_approved !== undefined
+      ? Boolean(overtime_approved)
+      : (finalOtMinutes > 0 ? true : false);
+
     if (targetLogId) {
       // Update existing log
       const { error: updateErr } = await adminClient
@@ -83,9 +127,10 @@ export async function POST(req: NextRequest) {
           time_in: timeInIso,
           time_out: timeOutIso,
           hours_worked: hoursWorked,
-          late_minutes: Number(late_minutes) || 0,
-          undertime_minutes: Number(undertime_minutes) || 0,
-          overtime_minutes: Number(overtime_minutes) || 0,
+          late_minutes: finalLateMinutes,
+          undertime_minutes: finalUndertimeMinutes,
+          overtime_minutes: finalOtMinutes,
+          overtime_approved: isApprovedOt,
           status,
           verification_method: 'fallback',
           flagged: false,
@@ -104,9 +149,10 @@ export async function POST(req: NextRequest) {
           time_in: timeInIso,
           time_out: timeOutIso,
           hours_worked: hoursWorked,
-          late_minutes: Number(late_minutes) || 0,
-          undertime_minutes: Number(undertime_minutes) || 0,
-          overtime_minutes: Number(overtime_minutes) || 0,
+          late_minutes: finalLateMinutes,
+          undertime_minutes: finalUndertimeMinutes,
+          overtime_minutes: finalOtMinutes,
+          overtime_approved: isApprovedOt,
           status,
           verification_method: 'fallback',
           flagged: false,
