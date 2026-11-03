@@ -111,7 +111,7 @@ export default function ConnectedAccounts({ profile, preferences, onProfileUpdat
       const { data, error } = await supabase.auth.linkIdentity({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/dashboard?linked=google`,
+          redirectTo: `${window.location.origin}/auth/callback?next=/dashboard?linked=google`,
         },
       });
 
