@@ -187,10 +187,53 @@ const iconsDir = path.resolve('public', 'icons');
 if (!fs.existsSync(iconsDir)) fs.mkdirSync(iconsDir, { recursive: true });
 
 console.log('Rendering minimal PNG icons...');
+const png32 = renderMinimalIconPng(32);
+const png48 = renderMinimalIconPng(48);
 const png192 = renderMinimalIconPng(192);
 fs.writeFileSync(path.join(iconsDir, 'icon-192x192.png'), png192);
 
 const png512 = renderMinimalIconPng(512);
 fs.writeFileSync(path.join(iconsDir, 'icon-512x512.png'), png512);
 
-console.log('Minimal 192x192 and 512x512 PNGs generated successfully!');
+// Generate ICO
+function createIcoFromPngs(pngEntries) {
+  const count = pngEntries.length;
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // reserved
+  header.writeUInt16LE(1, 2); // type 1 = icon
+  header.writeUInt16LE(count, 4);
+
+  const dirSize = 16;
+  let offset = 6 + count * dirSize;
+
+  const dirBuffers = [];
+  const imageBuffers = [];
+
+  for (const entry of pngEntries) {
+    const dir = Buffer.alloc(dirSize);
+    dir.writeUInt8(entry.size >= 256 ? 0 : entry.size, 0);
+    dir.writeUInt8(entry.size >= 256 ? 0 : entry.size, 1);
+    dir.writeUInt8(0, 2);
+    dir.writeUInt8(0, 3);
+    dir.writeUInt16LE(1, 4);
+    dir.writeUInt16LE(32, 6);
+    dir.writeUInt32LE(entry.buffer.length, 8);
+    dir.writeUInt32LE(offset, 12);
+
+    dirBuffers.push(dir);
+    imageBuffers.push(entry.buffer);
+    offset += entry.buffer.length;
+  }
+
+  return Buffer.concat([header, ...dirBuffers, ...imageBuffers]);
+}
+
+const icoBuffer = createIcoFromPngs([
+  { size: 32, buffer: png32 },
+  { size: 48, buffer: png48 },
+]);
+
+fs.writeFileSync(path.resolve('app', 'favicon.ico'), icoBuffer);
+fs.writeFileSync(path.resolve('public', 'favicon.ico'), icoBuffer);
+
+console.log('Minimal 192x192, 512x512 PNGs and custom favicon.ico generated successfully!');

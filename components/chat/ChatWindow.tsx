@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Conversation, Message, Profile, MessageReaction } from '@/types/database.types';
 import { formatPHTime } from '@/lib/ph-time';
-import { Send, Image, Megaphone, Users, User, ArrowLeft, ShieldAlert, Smile, Heart, ThumbsUp } from 'lucide-react';
+import { Send, Image, Megaphone, Users, User, ArrowLeft, ShieldAlert, Smile, Heart, ThumbsUp, Trash2 } from 'lucide-react';
 
 interface Props {
   currentUser: Profile;
@@ -106,8 +106,9 @@ export default function ChatWindow({ currentUser, onUnreadCountChange }: Props) 
     if (!selectedConversation) return;
 
     // Listen to messages table events
+    const channelName = `chat-${selectedConversation.id}-${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
-      .channel(`chat-room-${selectedConversation.id}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -255,6 +256,56 @@ export default function ChatWindow({ currentUser, onUnreadCountChange }: Props) 
     }
   };
 
+  // Delete individual message (sender or admin)
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!confirm('Are you sure you want to delete this message?')) return;
+
+    // Optimistically remove from UI
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+
+    try {
+      const res = await fetch(`/api/chat/messages/${messageId}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Failed to delete message');
+        if (selectedConversation) {
+          loadMessages(selectedConversation.id);
+        }
+      } else {
+        loadConversations();
+      }
+    } catch (e) {
+      console.error(e);
+      if (selectedConversation) {
+        loadMessages(selectedConversation.id);
+      }
+    }
+  };
+
+  // Delete conversation
+  const handleDeleteConversation = async (conversationId: string) => {
+    if (!confirm('Are you sure you want to delete this chat conversation? All messages will be permanently removed.')) return;
+
+    try {
+      const res = await fetch(`/api/chat/conversations/${conversationId}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Failed to delete conversation');
+      } else {
+        setSelectedConversation((prev) => (prev?.id === conversationId ? null : prev));
+        loadConversations();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Start new 1-on-1 chat
   const handleStartDirectChat = async (colleague: Profile) => {
     setShowNewChatModal(false);
@@ -304,10 +355,10 @@ export default function ChatWindow({ currentUser, onUnreadCountChange }: Props) 
           {conversations.map((c) => {
             const isSelected = selectedConversation?.id === c.id;
             return (
-              <button
+              <div
                 key={c.id}
                 onClick={() => setSelectedConversation(c)}
-                className={`w-full p-4 text-left transition flex items-start gap-3 ${
+                className={`w-full p-4 text-left transition flex items-start gap-3 cursor-pointer group/item relative ${
                   isSelected
                     ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100'
                     : 'hover:bg-slate-100 dark:hover:bg-slate-800/40'
@@ -336,17 +387,32 @@ export default function ChatWindow({ currentUser, onUnreadCountChange }: Props) 
                     <h4 className="text-sm font-semibold truncate text-slate-900 dark:text-white">
                       {c.title || (c.is_announcement ? 'Announcements' : 'Direct Message')}
                     </h4>
-                    {c.unreadCount ? (
-                      <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center">
-                        {c.unreadCount}
-                      </span>
-                    ) : null}
+                    <div className="flex items-center gap-1.5">
+                      {c.unreadCount ? (
+                        <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center">
+                          {c.unreadCount}
+                        </span>
+                      ) : null}
+                      {(!c.is_announcement || currentUser.role === 'admin') && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteConversation(c.id);
+                          }}
+                          className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-950/60 transition opacity-0 group-hover/item:opacity-100"
+                          title="Delete conversation"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
                     {c.lastMessage ? c.lastMessage.content : 'No messages yet'}
                   </p>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -377,10 +443,23 @@ export default function ChatWindow({ currentUser, onUnreadCountChange }: Props) 
                   <span className="text-[11px] text-slate-500 dark:text-slate-400">
                     {selectedConversation.is_announcement
                       ? 'Company-wide Announcement Channel (Broadcast)'
-                      : 'Supabase Realtime Secured'}
+                      : 'End-to-End Realtime Secured'}
                   </span>
                 </div>
               </div>
+
+              {/* Action buttons in header */}
+              {(!selectedConversation.is_announcement || currentUser.role === 'admin') && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteConversation(selectedConversation.id)}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition flex items-center gap-1.5"
+                  title="Delete this entire conversation"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Delete Chat</span>
+                </button>
+              )}
             </div>
 
             {/* Message history */}
@@ -476,6 +555,21 @@ export default function ChatWindow({ currentUser, onUnreadCountChange }: Props) 
                         >
                           <Smile className="w-4 h-4" />
                         </button>
+
+                        {/* Delete Message Button (Sender or Admin) */}
+                        {(isMe || currentUser.role === 'admin') && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteMessage(m.id);
+                            }}
+                            className="p-1.5 rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition opacity-60 sm:opacity-0 group-hover:opacity-100 active:opacity-100 focus:opacity-100"
+                            title="Delete message"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
 
                       {/* Display active reactions */}

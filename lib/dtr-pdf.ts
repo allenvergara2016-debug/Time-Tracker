@@ -40,62 +40,77 @@ export function exportDTRListToPDF(
 
     // --- Header Section ---
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text('CIVIL SERVICE FORM NO. 48 / STANDARD CORPORATE TIMESHEET', pageWidth / 2, 12, {
+    doc.text('CIVIL SERVICE FORM NO. 48 / DTR WITH LATE, UNDERTIME, AND OVERTIME COMPUTATION', pageWidth / 2, 11, {
+      align: 'center',
+    });
+    doc.text('Based on Management-Set Rates', pageWidth / 2, 14.5, {
       align: 'center',
     });
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
     doc.setTextColor(15, 23, 42);
-    doc.text('DAILY TIME RECORD', pageWidth / 2, 18, { align: 'center' });
+    doc.text('DAILY TIME RECORD', pageWidth / 2, 20, { align: 'center' });
 
     doc.setFontSize(8.5);
     doc.setTextColor(30, 64, 175);
-    doc.text(`Period Covered: ${dtr.period.formattedRange} • ${tzLabel}`, pageWidth / 2, 23, {
+    doc.text(`Period Covered: ${dtr.period.formattedRange} • ${tzLabel}`, pageWidth / 2, 25, {
       align: 'center',
     });
 
     // Employee Meta Info Box
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(10, 26, pageWidth - 20, 16, 2, 2, 'FD');
+    doc.roundedRect(10, 27, pageWidth - 20, 16, 2, 2, 'FD');
 
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(71, 85, 105);
-    doc.text('Employee Name:', 14, 32);
+    doc.text('Employee Name:', 14, 33);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(dtr.employee.fullName, 42, 32);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(71, 85, 105);
-    doc.text('Department:', 14, 38);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text(dtr.employee.department || 'General', 42, 38);
+    doc.text(dtr.employee.fullName, 42, 33);
 
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
-    doc.text('Daily Rate:', 110, 32);
+    doc.text('Department:', 14, 39);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(`PHP ${dtr.employee.dailyRate.toFixed(2)}`, 130, 32);
+    doc.text(dtr.employee.department || 'General', 42, 39);
+
+    const dailyRateLabel = dtr.employee.ratesHidden
+      ? 'Hidden'
+      : dtr.employee.rateNotSet || dtr.employee.dailyRate === null
+      ? 'Rate not set'
+      : `PHP ${Number(dtr.employee.dailyRate).toFixed(2)}`;
+
+    const otRateLabel = dtr.employee.ratesHidden
+      ? 'Hidden'
+      : dtr.employee.rateNotSet || dtr.employee.overtimeRatePerHour === null
+      ? 'Rate not set'
+      : `PHP ${Number(dtr.employee.overtimeRatePerHour).toFixed(2)}/hr`;
 
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
-    doc.text('OT Rate/Hr:', 110, 38);
+    doc.text('Daily Rate:', 110, 33);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(`PHP ${dtr.employee.overtimeRatePerHour.toFixed(2)}/hr`, 130, 38);
+    doc.text(dailyRateLabel, 130, 33);
 
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
-    doc.text('Shift:', 160, 32);
+    doc.text('OT Rate/Hr:', 110, 39);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(dtr.employee.shift || 'Regular', 170, 32);
+    doc.text(otRateLabel, 130, 39);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text('Shift:', 160, 33);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(dtr.employee.shift || 'Regular', 170, 33);
 
     // --- Table Section ---
     const tableHead = [
@@ -152,8 +167,14 @@ export function exportDTRListToPDF(
           styles: { halign: 'center', textColor: d.overtimeHours > 0 ? [180, 83, 9] : [148, 163, 184] },
         },
         {
-          content: d.overtimePay > 0 ? `PHP ${d.overtimePay.toFixed(2)}` : '-',
-          styles: { halign: 'right', font: 'courier', textColor: d.overtimePay > 0 ? [180, 83, 9] : [148, 163, 184] },
+          content: d.ratesHidden
+            ? '-'
+            : d.rateNotSet
+            ? 'Not set'
+            : d.overtimePay !== null && d.overtimePay > 0
+            ? `PHP ${d.overtimePay.toFixed(2)}`
+            : '-',
+          styles: { halign: 'right', font: 'courier', textColor: d.overtimePay && d.overtimePay > 0 ? [180, 83, 9] : [148, 163, 184] },
         },
         {
           content: d.lateMinutes > 0 ? `${d.lateMinutes}m` : '-',
@@ -164,12 +185,18 @@ export function exportDTRListToPDF(
           styles: { halign: 'center', textColor: d.undertimeMinutes > 0 ? [225, 29, 72] : [148, 163, 184] },
         },
         {
-          content: d.totalDailyWage > 0 ? `PHP ${d.totalDailyWage.toFixed(2)}` : '-',
+          content: d.ratesHidden
+            ? '-'
+            : d.rateNotSet
+            ? 'Not set'
+            : d.totalDailyWage !== null && d.totalDailyWage > 0
+            ? `PHP ${d.totalDailyWage.toFixed(2)}`
+            : '-',
           styles: {
             halign: 'right',
             font: 'courier',
             fontStyle: 'bold',
-            textColor: d.totalDailyWage > 0 ? [6, 95, 70] : [148, 163, 184],
+            textColor: d.totalDailyWage && d.totalDailyWage > 0 ? [6, 95, 70] : [148, 163, 184],
             fillColor: [240, 253, 244],
           },
         },
@@ -189,7 +216,11 @@ export function exportDTRListToPDF(
           styles: { fontStyle: 'bold', halign: 'center', textColor: [180, 83, 9], fillColor: [254, 243, 199] },
         },
         {
-          content: `PHP ${dtr.totals.totalOvertimePay.toFixed(2)}`,
+          content: dtr.totals.ratesHidden
+            ? 'Hidden'
+            : dtr.totals.rateNotSet || dtr.totals.totalOvertimePay === null
+            ? 'Not set'
+            : `PHP ${dtr.totals.totalOvertimePay.toFixed(2)}`,
           styles: { fontStyle: 'bold', halign: 'right', font: 'courier', textColor: [180, 83, 9], fillColor: [254, 243, 199] },
         },
         {
@@ -201,7 +232,11 @@ export function exportDTRListToPDF(
           styles: { fontStyle: 'bold', halign: 'center', textColor: [225, 29, 72], fillColor: [241, 245, 249] },
         },
         {
-          content: `PHP ${dtr.totals.totalGrossPay.toFixed(2)}`,
+          content: dtr.totals.ratesHidden
+            ? 'Hidden'
+            : dtr.totals.rateNotSet || dtr.totals.totalGrossPay === null
+            ? 'Rate not set'
+            : `PHP ${dtr.totals.totalGrossPay.toFixed(2)}`,
           styles: { fontStyle: 'bold', halign: 'right', font: 'courier', textColor: [6, 95, 70], fillColor: [220, 252, 231] },
         },
       ],
@@ -216,7 +251,7 @@ export function exportDTRListToPDF(
       head: tableHead as any,
       body: tableBody as any,
       foot: tableFoot as any,
-      startY: 44,
+      startY: 45,
       margin: { left: 10, right: 10 },
       styles: {
         fontSize,
@@ -243,26 +278,43 @@ export function exportDTRListToPDF(
     // --- Summary & Signature Section ---
     let summaryY = finalY + 4;
     if (summaryY > pageHeight - 45) {
-      // If table reached bottom, ensure safe spacing
       summaryY = pageHeight - 42;
     }
 
     // Summary Box
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(10, summaryY, pageWidth - 20, 14, 2, 2, 'FD');
+    doc.roundedRect(10, summaryY, pageWidth - 20, 15, 2, 2, 'FD');
+
+    const basicWageText = dtr.totals.ratesHidden
+      ? 'Basic Wage: Hidden by policy'
+      : dtr.totals.rateNotSet || dtr.totals.totalRegularPay === null
+      ? 'Basic Wage: Rate not set'
+      : `Basic Wage: PHP ${Number(dtr.totals.totalRegularPay).toFixed(2)}`;
+
+    const otWageText = dtr.totals.ratesHidden
+      ? 'Overtime Pay: Hidden by policy'
+      : dtr.totals.rateNotSet || dtr.totals.totalOvertimePay === null
+      ? 'Overtime Pay: Rate not set'
+      : `Overtime Pay: PHP ${Number(dtr.totals.totalOvertimePay).toFixed(2)}`;
+
+    const grossWageText = dtr.totals.ratesHidden
+      ? 'TOTAL WAGE: HIDDEN BY POLICY'
+      : dtr.totals.rateNotSet || dtr.totals.totalGrossPay === null
+      ? 'TOTAL WAGE: RATE NOT SET'
+      : `TOTAL WAGE TO BE GIVEN: PHP ${Number(dtr.totals.totalGrossPay).toFixed(2)}`;
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(71, 85, 105);
-    doc.text(`Basic Wage: PHP ${dtr.totals.totalRegularPay.toFixed(2)}`, 14, summaryY + 5.5);
-    doc.text(`Overtime Pay: PHP ${dtr.totals.totalOvertimePay.toFixed(2)}`, 14, summaryY + 10.5);
+    doc.text(basicWageText, 14, summaryY + 5.5);
+    doc.text(otWageText, 14, summaryY + 11);
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(6, 95, 70);
     doc.text(
-      `TOTAL WAGE TO BE GIVEN: PHP ${dtr.totals.totalGrossPay.toFixed(2)}`,
+      grossWageText,
       pageWidth - 14,
       summaryY + 8.5,
       { align: 'right' }

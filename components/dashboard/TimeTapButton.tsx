@@ -44,6 +44,13 @@ export default function TimeTapButton({ activeLog, onAttendanceUpdated }: Props)
 
   const handleTap = async () => {
     if (loading) return;
+
+    // Requirement E: offline check
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setStatusMessage({ text: 'No connection, cannot record attendance.', type: 'error' });
+      return;
+    }
+
     setLoading(true);
     setStatusMessage({ text: 'Reading precise GPS coordinates...', type: 'info' });
 
@@ -135,6 +142,12 @@ export default function TimeTapButton({ activeLog, onAttendanceUpdated }: Props)
   const handleFallbackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pendingCoords || !fallbackPassword) return;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setStatusMessage({ text: 'No connection, cannot record attendance.', type: 'error' });
+      setShowFallbackModal(false);
+      return;
+    }
 
     setLoading(true);
     try {

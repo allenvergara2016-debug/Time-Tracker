@@ -26,6 +26,9 @@ export interface Profile {
   phone: string | null;
   whatsapp_number: string | null;
   whatsapp_verified: boolean;
+  google_email?: string | null;
+  facebook_url?: string | null;
+  facebook_name?: string | null;
   avatar_url: string | null;
   daily_rate?: number;
   hourly_rate?: number;
@@ -34,6 +37,9 @@ export interface Profile {
   is_active: boolean;
   must_change_password: boolean;
   consent_given: boolean;
+  consent_accepted_at?: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
   is_super_admin?: boolean;
   created_at: string;
   updated_at: string;
@@ -114,6 +120,10 @@ export interface AttendanceLog {
   selfie_url: string | null;
   flagged: boolean;
   flag_reason: string | null;
+  daily_rate?: number | null;
+  hourly_rate?: number | null;
+  overtime_rate_per_hour?: number | null;
+  overtime_multiplier?: number | null;
   created_at: string;
   updated_at: string;
   // joined fields
@@ -162,6 +172,7 @@ export interface LeaveRequest {
   reviewed_at: string | null;
   created_at: string;
   profile?: Profile;
+  employee?: Profile;
   reviewer?: Profile;
 }
 
@@ -179,6 +190,7 @@ export interface CorrectionRequest {
   reviewed_at: string | null;
   created_at: string;
   profile?: Profile;
+  employee?: Profile;
   reviewer?: Profile;
 }
 
@@ -262,7 +274,31 @@ export interface AppSettings {
   allowed_login_facebook: boolean;
   allowed_login_whatsapp: boolean;
   timezone?: string;
+  overtime_multiplier_ordinary?: number;
+  overtime_multiplier_restday?: number;
+  overtime_multiplier_special_holiday?: number;
+  overtime_multiplier_regular_holiday?: number;
+  data_retention_years?: number;
+  show_rates_to_employees?: boolean;
+  hours_per_day?: number;
+  undertime_minutes_basis?: 'exact' | '15_min_block';
+  require_overtime_approval?: boolean;
+  overtime_rounding_rule?: 'exact' | '30_min_block';
+  enable_special_day_rates?: boolean;
   updated_at: string;
+}
+
+export interface EmployeeRate {
+  id: string;
+  employee_id: string;
+  regular_rate: number;
+  overtime_rate_per_hour: number;
+  rest_day_ot_rate?: number | null;
+  holiday_ot_rate?: number | null;
+  effective_from: string;
+  created_by?: string | null;
+  created_at: string;
+  creator?: Profile;
 }
 
 export interface AuditLog {
@@ -272,6 +308,8 @@ export interface AuditLog {
   target_type: string | null;
   target_id: string | null;
   details: Record<string, unknown>;
+  old_value?: Record<string, unknown> | null;
+  new_value?: Record<string, unknown> | null;
   ip_address: string | null;
   user_agent: string | null;
   created_at: string;

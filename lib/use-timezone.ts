@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { DEFAULT_TIMEZONE, getTimezoneLabel } from '@/lib/ph-time';
-import { createClient } from '@/lib/supabase/client';
 
 export function useCompanyTimezone() {
   const [timezone, setTimezone] = useState<string>(() => {
@@ -32,7 +31,7 @@ export function useCompanyTimezone() {
   useEffect(() => {
     fetchTimezone();
 
-    // Listen for local updates triggered by admin in the same window
+    // 1. Listen for local updates triggered by admin in the same window
     const handleLocalChange = (e: Event) => {
       const custom = e as CustomEvent<{ timezone: string }>;
       if (custom.detail?.timezone) {
@@ -43,30 +42,24 @@ export function useCompanyTimezone() {
     };
     window.addEventListener('company-timezone-changed', handleLocalChange);
 
-    // Supabase Realtime subscription with unique channel name to avoid StrictMode / multi-instance conflicts
-    const supabase = createClient();
-    const channelId = `company-tz-sync-${Math.random().toString(36).slice(2, 9)}`;
-    const channel = supabase
-      .channel(channelId)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'app_settings' },
-        () => fetchTimezone()
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'audit_logs' },
-        (payload) => {
-          if (payload.new && (payload.new as any).action === 'UPDATE_TIMEZONE') {
-            fetchTimezone();
-          }
-        }
-      )
-      .subscribe();
+    // 2. Listen for cross-tab updates via localStorage
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'company_timezone' && e.newValue) {
+        setTimezone(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    // 3. Re-verify on window focus
+    const handleFocus = () => {
+      fetchTimezone();
+    };
+    window.addEventListener('focus', handleFocus);
 
     return () => {
       window.removeEventListener('company-timezone-changed', handleLocalChange);
-      supabase.removeChannel(channel);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleFocus);
     };
   }, []);
 
@@ -75,4 +68,3 @@ export function useCompanyTimezone() {
     timezoneLabel: getTimezoneLabel(timezone),
   };
 }
-

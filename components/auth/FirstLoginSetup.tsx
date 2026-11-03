@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Lock, ShieldCheck, CheckCircle2, ArrowRight } from 'lucide-react';
 import PasskeyEnrollment from './PasskeyEnrollment';
+import { validatePasswordStrength } from '@/lib/password-rules';
 
 interface Props {
   mustChangePassword: boolean;
@@ -23,8 +24,9 @@ export default function FirstLoginSetup({ mustChangePassword, needsConsent, onCo
   // Handle password change
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.length < 6) {
-      setPwdError('Password must be at least 6 characters');
+    const passCheck = validatePasswordStrength(password);
+    if (!passCheck.valid) {
+      setPwdError(passCheck.error || 'Password does not meet strength requirements.');
       return;
     }
     if (password !== confirmPassword) {
@@ -167,6 +169,17 @@ export default function FirstLoginSetup({ mustChangePassword, needsConsent, onCo
                   <b>Biometric Privacy:</b> Your fingerprint or facial scan NEVER leaves your personal device. Only cryptographic keys are exchanged via WebAuthn standards.
                 </span>
               </div>
+            </div>
+
+            <div className="text-center mb-4">
+              <a
+                href="/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium inline-flex items-center gap-1"
+              >
+                <span>Read detailed Privacy Notice &amp; Data Rights</span> &rarr;
+              </a>
             </div>
 
             <button

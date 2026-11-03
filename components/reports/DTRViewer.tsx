@@ -172,13 +172,26 @@ export default function DTRViewer({ isAdmin = false }: Props) {
     const workbook = XLSX.utils.book_new();
 
     dtrList.forEach((dtr) => {
+      const dailyRateStr = dtr.employee.ratesHidden
+        ? 'Hidden by policy'
+        : dtr.employee.rateNotSet || dtr.employee.dailyRate === null
+        ? 'Rate not set'
+        : `₱${Number(dtr.employee.dailyRate).toFixed(2)}`;
+
+      const otRateStr = dtr.employee.ratesHidden
+        ? 'Hidden by policy'
+        : dtr.employee.rateNotSet || dtr.employee.overtimeRatePerHour === null
+        ? 'Rate not set'
+        : `₱${Number(dtr.employee.overtimeRatePerHour).toFixed(2)}/hr`;
+
       const sheetData: (string | number)[][] = [
         ['CIVIL SERVICE FORM NO. 48 / DAILY TIME RECORD'],
+        ['DTR with late, undertime, and overtime computation based on management-set rates'],
         [`Employee Name: ${dtr.employee.fullName}`, `Department: ${dtr.employee.department}`],
         [`Period Covered: ${dtr.period.formattedRange}`],
-        [`Daily Wage Rate: ₱${dtr.employee.dailyRate.toFixed(2)}`, `OT Rate/Hour: ₱${dtr.employee.overtimeRatePerHour.toFixed(2)}/hr`],
+        [`Daily Wage Rate: ${dailyRateStr}`, `OT Rate/Hour: ${otRateStr}`],
         [],
-        ['Day', 'Date', 'Day of Week', 'A.M. Arrival', 'A.M. Departure', 'P.M. Arrival', 'P.M. Departure', 'Reg. Hours', 'OT Hours', 'OT Pay (₱)', 'Late (Mins)', 'Undertime (Mins)', 'Daily Pay (₱)'],
+        ['Day', 'Date', 'Day of Week', 'A.M. Arrival', 'A.M. Departure', 'P.M. Arrival', 'P.M. Departure', 'Reg. Hours', 'OT Hours', 'OT Pay (₱)', 'Late (Mins)', 'Undertime (Mins)', 'Daily Pay (₱)', 'Calculation Formula'],
       ];
 
       dtr.days.forEach((d) => {
@@ -192,10 +205,11 @@ export default function DTRViewer({ isAdmin = false }: Props) {
           d.timeOut ? formatPHTime(d.timeOut) : '-',
           d.regularHours,
           d.overtimeHours,
-          d.overtimePay,
+          d.ratesHidden ? 'Hidden' : d.rateNotSet ? 'Not set' : (d.overtimePay ?? '-'),
           d.lateMinutes,
           d.undertimeMinutes,
-          d.totalDailyWage,
+          d.ratesHidden ? 'Hidden' : d.rateNotSet ? 'Not set' : (d.totalDailyWage ?? '-'),
+          d.formula || '',
         ]);
       });
 
@@ -210,15 +224,27 @@ export default function DTRViewer({ isAdmin = false }: Props) {
         '',
         dtr.totals.totalRegularHours,
         dtr.totals.totalOvertimeHours,
-        dtr.totals.totalOvertimePay,
+        dtr.totals.ratesHidden ? 'Hidden' : dtr.totals.rateNotSet || dtr.totals.totalOvertimePay === null ? 'Not set' : dtr.totals.totalOvertimePay,
         dtr.totals.totalLateMinutes,
         dtr.totals.totalUndertimeMinutes,
-        dtr.totals.totalGrossPay,
+        dtr.totals.ratesHidden ? 'Hidden' : dtr.totals.rateNotSet || dtr.totals.totalGrossPay === null ? 'Not set' : dtr.totals.totalGrossPay,
       ]);
       sheetData.push([]);
-      sheetData.push(['TOTAL BASIC WAGE TO BE GIVEN:', `₱${dtr.totals.totalRegularPay.toFixed(2)}`]);
-      sheetData.push(['TOTAL OVERTIME PAY TO BE GIVEN:', `₱${dtr.totals.totalOvertimePay.toFixed(2)}`]);
-      sheetData.push(['TOTAL GROSS WAGE TO BE GIVEN:', `₱${dtr.totals.totalGrossPay.toFixed(2)}`]);
+      sheetData.push([
+        'TOTAL BASIC WAGE TO BE GIVEN:',
+        dtr.totals.ratesHidden ? 'Hidden by policy' : dtr.totals.rateNotSet || dtr.totals.totalRegularPay === null ? 'Rate not set' : `₱${Number(dtr.totals.totalRegularPay).toFixed(2)}`,
+      ]);
+      sheetData.push([
+        'TOTAL OVERTIME PAY TO BE GIVEN:',
+        dtr.totals.ratesHidden ? 'Hidden by policy' : dtr.totals.rateNotSet || dtr.totals.totalOvertimePay === null ? 'Rate not set' : `₱${Number(dtr.totals.totalOvertimePay).toFixed(2)}`,
+      ]);
+      sheetData.push([
+        'TOTAL GROSS WAGE TO BE GIVEN:',
+        dtr.totals.ratesHidden ? 'Hidden by policy' : dtr.totals.rateNotSet || dtr.totals.totalGrossPay === null ? 'Rate not set' : `₱${Number(dtr.totals.totalGrossPay).toFixed(2)}`,
+      ]);
+      if (dtr.totals.summaryFormula) {
+        sheetData.push(['Formula:', dtr.totals.summaryFormula]);
+      }
 
       const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
       const safeName = dtr.employee.fullName.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 25);
@@ -373,8 +399,11 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                   </button>
                 </div>
 
-                <span className="text-[11px] font-mono tracking-widest text-slate-500 uppercase">
+                <span className="text-[11px] font-mono tracking-widest text-slate-500 uppercase block">
                   Civil Service Form No. 48 / Standard Corporate Timesheet
+                </span>
+                <span className="text-[10px] font-medium text-slate-400 block mt-0.5">
+                  DTR with late, undertime, and overtime computation based on management-set rates
                 </span>
                 <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900 mt-1">
                   DAILY TIME RECORD
@@ -398,16 +427,31 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                 <div>
                   <span className="text-slate-500 font-medium block">Daily Wage Rate:</span>
                   <span className="font-bold text-blue-700 text-sm">
-                    {dtr.employee.dailyRate > 0 ? `₱${dtr.employee.dailyRate.toFixed(2)} / day` : 'Not set'}
+                    {dtr.employee.ratesHidden
+                      ? 'Hidden by policy'
+                      : dtr.employee.rateNotSet || dtr.employee.dailyRate === null
+                      ? 'Rate not set'
+                      : `₱${Number(dtr.employee.dailyRate).toFixed(2)} / day`}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-500 font-medium block">Overtime Rate per Hour:</span>
                   <span className="font-bold text-amber-700 text-sm">
-                    {dtr.employee.overtimeRatePerHour > 0 ? `₱${dtr.employee.overtimeRatePerHour.toFixed(2)} / hr` : '₱0.00 / hr'}
+                    {dtr.employee.ratesHidden
+                      ? 'Hidden by policy'
+                      : dtr.employee.rateNotSet || dtr.employee.overtimeRatePerHour === null
+                      ? 'Rate not set'
+                      : `₱${Number(dtr.employee.overtimeRatePerHour).toFixed(2)} / hr`}
                   </span>
                 </div>
               </div>
+
+              {/* Rate Not Set Warning */}
+              {dtr.totals.rateNotSet && (
+                <div className="mb-4 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 text-xs flex items-center gap-2">
+                  <span className="font-semibold">⚠️ Management has not set wage rates for this employee. Payroll computation is locked until rates are configured in management settings.</span>
+                </div>
+              )}
 
               {/* Official DTR Table */}
               <div className="overflow-x-auto">
@@ -440,6 +484,7 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                         className={`hover:bg-slate-50 ${
                           d.dayOfWeek === 'Sun' || d.dayOfWeek === 'Sat' ? 'bg-slate-50/70 text-slate-500 font-medium' : ''
                         }`}
+                        title={d.formula || ''}
                       >
                         <td className="border-r border-slate-300 py-1 px-1 font-bold text-slate-700">
                           {d.day} <span className="text-[9px] font-normal text-slate-400">({d.dayOfWeek})</span>
@@ -453,7 +498,13 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                           {d.overtimeHours > 0 ? `${d.overtimeHours}h` : '-'}
                         </td>
                         <td className="border-r border-slate-200 py-1 px-1 bg-amber-50/40 text-amber-800 font-mono">
-                          {d.overtimePay > 0 ? `₱${d.overtimePay.toFixed(2)}` : '-'}
+                          {d.ratesHidden
+                            ? '-'
+                            : d.rateNotSet
+                            ? 'Not set'
+                            : d.overtimePay !== null && d.overtimePay > 0
+                            ? `₱${d.overtimePay.toFixed(2)}`
+                            : '-'}
                         </td>
                         {/* Late / Undertime */}
                         <td className="border-r border-slate-200 py-1 px-1 text-rose-600 font-medium">
@@ -464,7 +515,13 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                         </td>
                         {/* Daily Pay */}
                         <td className="py-1 px-2 font-mono font-semibold text-emerald-800 bg-emerald-50/30">
-                          {d.totalDailyWage > 0 ? `₱${d.totalDailyWage.toFixed(2)}` : '-'}
+                          {d.ratesHidden
+                            ? '-'
+                            : d.rateNotSet
+                            ? 'Not set'
+                            : d.totalDailyWage !== null && d.totalDailyWage > 0
+                            ? `₱${d.totalDailyWage.toFixed(2)}`
+                            : '-'}
                         </td>
                         {isAdmin && (
                           <td className="py-1 px-1 print:hidden border-l border-slate-200">
@@ -491,7 +548,11 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                         {dtr.totals.totalOvertimeHours} hrs
                       </td>
                       <td className="border-r border-slate-300 py-2 bg-amber-100 text-amber-900">
-                        ₱{dtr.totals.totalOvertimePay.toFixed(2)}
+                        {dtr.totals.ratesHidden
+                          ? 'Hidden'
+                          : dtr.totals.rateNotSet || dtr.totals.totalOvertimePay === null
+                          ? 'Not set'
+                          : `₱${dtr.totals.totalOvertimePay.toFixed(2)}`}
                       </td>
                       <td className="border-r border-slate-300 py-2 text-rose-700">
                         {dtr.totals.totalLateMinutes}m
@@ -500,7 +561,11 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                         {dtr.totals.totalUndertimeMinutes}m
                       </td>
                       <td className="py-2 px-2 bg-emerald-100 text-emerald-950 font-black text-sm">
-                        ₱{dtr.totals.totalGrossPay.toFixed(2)}
+                        {dtr.totals.ratesHidden
+                          ? 'Hidden'
+                          : dtr.totals.rateNotSet || dtr.totals.totalGrossPay === null
+                          ? 'Rate not set'
+                          : `₱${dtr.totals.totalGrossPay.toFixed(2)}`}
                       </td>
                       {isAdmin && <td className="print:hidden"></td>}
                     </tr>
@@ -513,20 +578,36 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                 <div className="space-y-1">
                   <span className="text-slate-500 font-semibold block uppercase">Total Basic Daily Wage:</span>
                   <p className="font-extrabold text-slate-900 text-base">
-                    ₱{dtr.totals.totalRegularPay.toFixed(2)}
+                    {dtr.totals.ratesHidden
+                      ? 'Hidden by policy'
+                      : dtr.totals.rateNotSet || dtr.totals.totalRegularPay === null
+                      ? 'Rate not set'
+                      : `₱${dtr.totals.totalRegularPay.toFixed(2)}`}
                   </p>
                   <p className="text-[10px] text-slate-400">
-                    ({dtr.totals.daysWorked} days worked @ ₱{dtr.employee.dailyRate.toFixed(2)}/day)
+                    {dtr.totals.rateNotSet
+                      ? 'No management rate assigned'
+                      : dtr.totals.ratesHidden
+                      ? 'Rates hidden'
+                      : `(${dtr.totals.daysWorked} days worked)`}
                   </p>
                 </div>
 
                 <div className="space-y-1">
                   <span className="text-slate-500 font-semibold block uppercase">Total Overtime Pay:</span>
                   <p className="font-extrabold text-amber-700 text-base">
-                    + ₱{dtr.totals.totalOvertimePay.toFixed(2)}
+                    {dtr.totals.ratesHidden
+                      ? 'Hidden by policy'
+                      : dtr.totals.rateNotSet || dtr.totals.totalOvertimePay === null
+                      ? 'Rate not set'
+                      : `+ ₱${dtr.totals.totalOvertimePay.toFixed(2)}`}
                   </p>
                   <p className="text-[10px] text-slate-400">
-                    ({dtr.totals.totalOvertimeHours} hrs OT @ ₱{dtr.employee.overtimeRatePerHour.toFixed(2)}/hr)
+                    {dtr.totals.rateNotSet
+                      ? 'No management rate assigned'
+                      : dtr.totals.ratesHidden
+                      ? 'Rates hidden'
+                      : `(${dtr.totals.totalOvertimeHours} hrs OT)`}
                   </p>
                 </div>
 
@@ -536,11 +617,23 @@ export default function DTRViewer({ isAdmin = false }: Props) {
                   </span>
                   <div className="px-4 py-2 bg-emerald-600 text-white rounded-xl shadow-md inline-block">
                     <span className="font-mono text-xl sm:text-2xl font-black">
-                      ₱{dtr.totals.totalGrossPay.toFixed(2)}
+                      {dtr.totals.ratesHidden
+                        ? 'HIDDEN'
+                        : dtr.totals.rateNotSet || dtr.totals.totalGrossPay === null
+                        ? 'RATE NOT SET'
+                        : `₱${dtr.totals.totalGrossPay.toFixed(2)}`}
                     </span>
                   </div>
                 </div>
               </div>
+
+              {/* Calculation Formula Verification Line */}
+              {dtr.totals.summaryFormula && (
+                <div className="mt-3 p-3 rounded-xl bg-slate-100 text-slate-600 font-mono text-[11px] border border-slate-200">
+                  <span className="font-bold text-slate-800">Formula &amp; Rate Basis: </span>
+                  <span>{dtr.totals.summaryFormula}</span>
+                </div>
+              )}
 
               {/* Official Certification Signature Block */}
               <div className="mt-8 pt-6 border-t border-slate-300 text-xs text-slate-700">
