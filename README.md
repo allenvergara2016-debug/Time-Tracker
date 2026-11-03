@@ -1,6 +1,6 @@
 # Time Tracker & Attendance PWA (Biometric WebAuthn + Geofencing)
 
-A full-stack, mobile-first Time Tracking and Attendance Progressive Web Application built with **Next.js (App Router)**, **TypeScript**, **Tailwind CSS**, and **Supabase (PostgreSQL, Auth, Realtime, RLS)**.
+A full-stack, mobile-first Time Tracking and Attendance Progressive Web Application built with **Next.js (App Router)**, **TypeScript**, **Tailwind CSS**, and **PostgreSQL (Auth, Realtime, RLS)**.
 
 Designed for corporate operations, remote sites, and field teams with biometric hardware verification and anti-spoofing geofencing.
 
@@ -29,7 +29,7 @@ Designed for corporate operations, remote sites, and field teams with biometric 
 - Rest Break In / Break Out logging with identical biometric security.
 
 ### 3. Role-Based Access Control (Admin & Employee)
-- **Public Sign-up Disabled:** Accounts can only be provisioned by Admins via Supabase Admin API.
+- **Public Sign-up Disabled:** Accounts can only be provisioned by Admins via Secure Admin API.
 - Force password change on first login.
 - Mandatory privacy consent screen explaining GPS & biometric privacy standards.
 - Row Level Security (RLS) ensures employees only access their own data, while admins oversee operations.
@@ -39,7 +39,7 @@ Designed for corporate operations, remote sites, and field teams with biometric 
 - **Live Attendance Map:** Pinpoints where employees tapped in today with color-coded status badges (On Time vs Late).
 
 ### 5. Team Realtime Chat & Announcements
-- 1-to-1 direct messaging and group channels powered by Supabase Realtime.
+- 1-to-1 direct messaging and group channels powered by End-to-End Realtime Engine.
 - Admin-only **Company Announcements** broadcast channel.
 - Unread message counters and image attachments.
 
@@ -83,10 +83,10 @@ The database includes 19 tables with full Row Level Security (RLS) policies and 
 
 ### 1. Prerequisites
 - Node.js 18+ (tested with Node 20 / 24)
-- A Supabase project ([supabase.com](https://supabase.com))
+- Cloud Database Project
 
 ### 2. Database Migration & Seed
-1. Open your Supabase Project Dashboard -> **SQL Editor**.
+1. Open your Database Management Console -> **SQL Editor**.
 2. Run the migration script located at:
    ```
    supabase/migrations/20261030000000_init_schema.sql
@@ -105,9 +105,9 @@ cp .env.example .env.local
 
 | Variable | Description | Example |
 | :--- | :--- | :--- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase Project URL | `https://xyzcompany.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Anon Public Key | `eyJhbGciOi...` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Service Role Secret (Server-only) | `eyJhbGciOi...` |
+| `NEXT_PUBLIC_SUPABASE_URL` | Backend Endpoint URL | `https://your-api.company.internal` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public Client Key | `eyJhbGciOi...` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server Administrative Secret (Server-only) | `eyJhbGciOi...` |
 | `WEBAUTHN_RP_ID` | Relying Party ID (`localhost` or production domain) | `localhost` or `time-tracker.vercel.app` |
 | `WEBAUTHN_RP_NAME` | Display name for passkey prompt | `Time Tracker Biometrics` |
 | `WEBAUTHN_ORIGIN` | App Origin (must match protocol and port) | `http://localhost:3000` or `https://time-tracker.vercel.app` |
