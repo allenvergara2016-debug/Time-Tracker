@@ -15,7 +15,8 @@ export function exportDTRListToPDF(
   startDate: string,
   endDate: string,
   singleEmployeeName?: string,
-  timezone: string = DEFAULT_TIMEZONE
+  timezone: string = DEFAULT_TIMEZONE,
+  tagFilter?: string
 ) {
   if (!dtrList || dtrList.length === 0) return;
 
@@ -42,7 +43,8 @@ export function exportDTRListToPDF(
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text('CIVIL SERVICE FORM NO. 48 / DTR WITH LATE, UNDERTIME, AND OVERTIME COMPUTATION', pageWidth / 2, 11, {
+    const formHeader = (dtr.employee.companyTag || 'CIVIL SERVICE FORM NO. 48').toUpperCase();
+    doc.text(`${formHeader} / DTR WITH LATE, UNDERTIME, AND OVERTIME COMPUTATION`, pageWidth / 2, 11, {
       align: 'center',
     });
     doc.text('Based on Management-Set Rates', pageWidth / 2, 14.5, {
@@ -74,10 +76,13 @@ export function exportDTRListToPDF(
 
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
-    doc.text('Department:', 14, 39);
+    doc.text('Department / Tag:', 14, 39);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(dtr.employee.department || 'General', 42, 39);
+    const deptTag = dtr.employee.companyTag
+      ? `${dtr.employee.department || 'General'} • [Tag: ${dtr.employee.companyTag}]`
+      : (dtr.employee.department || 'General');
+    doc.text(deptTag, 46, 39);
 
     const dailyRateLabel = dtr.employee.ratesHidden
       ? 'Hidden'
@@ -362,6 +367,9 @@ export function exportDTRListToPDF(
   if (singleEmployeeName) {
     const safeName = singleEmployeeName.replace(/[^a-zA-Z0-9]/g, '_');
     filename = `DTR_${safeName}_${startDate}_to_${endDate}.pdf`;
+  } else if (tagFilter && tagFilter !== 'all') {
+    const safeTag = tagFilter.replace(/[^a-zA-Z0-9]/g, '_');
+    filename = `DTR_${safeTag}_${startDate}_to_${endDate}.pdf`;
   } else if (dtrList.length === 1) {
     const safeName = dtrList[0].employee.fullName.replace(/[^a-zA-Z0-9]/g, '_');
     filename = `DTR_${safeName}_${startDate}_to_${endDate}.pdf`;

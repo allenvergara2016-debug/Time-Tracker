@@ -41,6 +41,7 @@ export interface Profile {
   archived_at?: string | null;
   archived_by?: string | null;
   is_super_admin?: boolean;
+  company_tag?: 'Allen Care Staff' | 'Allen V Fruits' | string | null;
   created_at: string;
   updated_at: string;
 }
@@ -116,6 +117,7 @@ export interface AttendanceLog {
   late_minutes: number;
   undertime_minutes: number;
   overtime_minutes: number;
+  overtime_approved?: boolean | null;
   hours_worked: number;
   selfie_url: string | null;
   flagged: boolean;
@@ -283,7 +285,7 @@ export interface AppSettings {
   hours_per_day?: number;
   undertime_minutes_basis?: 'exact' | '15_min_block';
   require_overtime_approval?: boolean;
-  overtime_rounding_rule?: 'exact' | '30_min_block';
+  overtime_rounding_rule?: 'exact' | '30_min_block' | '1_hour_block';
   enable_special_day_rates?: boolean;
   updated_at: string;
 }
