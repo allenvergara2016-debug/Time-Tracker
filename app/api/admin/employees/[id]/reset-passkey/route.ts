@@ -25,6 +25,12 @@ export async function POST(
 
     const adminClient = createAdminClient();
 
+    // Fetch existing passkeys for audit log
+    const { data: existingPasskeys } = await adminClient
+      .from('passkey_credentials')
+      .select('id, credential_id, device_name')
+      .eq('employee_id', id);
+
     // Delete passkey credentials for this employee
     const { error } = await adminClient
       .from('passkey_credentials')
@@ -40,6 +46,16 @@ export async function POST(
       action: 'RESET_PASSKEY',
       target_type: 'passkey_credentials',
       target_id: id,
+      old_value: {
+        passkey_count: existingPasskeys?.length || 0,
+        credential_ids: existingPasskeys?.map(p => p.credential_id) || [],
+      },
+      new_value: {
+        passkey_count: 0,
+      },
+      details: {
+        cleared_count: existingPasskeys?.length || 0,
+      },
     });
 
     return NextResponse.json({ success: true, message: 'Fingerprint / passkey credentials reset successfully' });

@@ -40,8 +40,8 @@ export async function GET(req: NextRequest) {
       userVerification: 'required',
     });
 
-    // Store challenge
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    // Store challenge: strictly single-use and expires in 60 seconds
+    const expiresAt = new Date(Date.now() + 60 * 1000).toISOString();
     await adminClient
       .from('webauthn_challenges')
       .delete()

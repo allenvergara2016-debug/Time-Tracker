@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+import { validatePasswordStrength } from '@/lib/password-rules';
+
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -85,6 +87,11 @@ export async function POST(req: NextRequest) {
 
     if (!full_name || !email || !password) {
       return NextResponse.json({ error: 'Full name, email, and password are required' }, { status: 400 });
+    }
+
+    const passCheck = validatePasswordStrength(password);
+    if (!passCheck.valid) {
+      return NextResponse.json({ error: passCheck.error }, { status: 400 });
     }
 
     const adminClient = createAdminClient();

@@ -25,6 +25,13 @@ export async function POST(
 
     const adminClient = createAdminClient();
 
+    // Fetch existing device state for audit trail
+    const { data: targetEmp } = await adminClient
+      .from('profiles')
+      .select('device_id, device_name, full_name, email')
+      .eq('id', id)
+      .single();
+
     // Clear bound device
     const { error } = await adminClient
       .from('profiles')
@@ -44,6 +51,18 @@ export async function POST(
       action: 'RESET_DEVICE_BINDING',
       target_type: 'profile',
       target_id: id,
+      old_value: {
+        device_id: targetEmp?.device_id || null,
+        device_name: targetEmp?.device_name || null,
+      },
+      new_value: {
+        device_id: null,
+        device_name: null,
+      },
+      details: {
+        employee_name: targetEmp?.full_name || id,
+        employee_email: targetEmp?.email,
+      },
     });
 
     return NextResponse.json({ success: true, message: 'Device binding reset successfully' });

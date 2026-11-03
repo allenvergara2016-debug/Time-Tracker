@@ -32,12 +32,22 @@ import {
   MessageSquare,
   Crown,
   Globe,
+  ExternalLink,
+  Mail,
+  Archive,
+  UserCheck,
+  ClipboardList,
+  Calendar,
+  UploadCloud,
+  History,
+  X,
 } from 'lucide-react';
 import DTRViewer from '@/components/reports/DTRViewer';
 import ChatWindow from '@/components/chat/ChatWindow';
 import PasskeyManager from '@/components/auth/PasskeyManager';
 import AppLogo from '@/components/ui/AppLogo';
 import InstallAppDrawerButton from '@/components/pwa/InstallAppDrawerButton';
+import StatusDrilldownModal, { DrilldownStatus } from '@/components/admin/StatusDrilldownModal';
 import {
   Profile,
   Location,
@@ -46,6 +56,10 @@ import {
   AppSettings,
   AttendanceLog,
   FailedAttempt,
+  LeaveRequest,
+  AuditLog,
+  Holiday,
+  EmployeeRate,
 } from '@/types/database.types';
 
 // Dynamic import for Leaflet maps to disable SSR
@@ -57,7 +71,7 @@ export default function AdminDashboardPage() {
   const supabase = createClient();
   const { timezone, timezoneLabel } = useCompanyTimezone();
 
-  type AdminTab = 'overview' | 'map' | 'employees' | 'locations' | 'shifts' | 'requests' | 'chat' | 'dtr' | 'reports' | 'flagged' | 'settings';
+  type AdminTab = 'overview' | 'map' | 'employees' | 'locations' | 'shifts' | 'requests' | 'chat' | 'dtr' | 'reports' | 'flagged' | 'settings' | 'audit';
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
 
   // Restore saved active tab on reload, and persist tab selection
@@ -99,6 +113,9 @@ export default function AdminDashboardPage() {
   const [editDailyRate, setEditDailyRate] = useState('');
   const [editOvertimeRate, setEditOvertimeRate] = useState('');
   const [editPhone, setEditPhone] = useState('');
+  const [editWhatsapp, setEditWhatsapp] = useState('');
+  const [editGoogleEmail, setEditGoogleEmail] = useState('');
+  const [editFacebookUrl, setEditFacebookUrl] = useState('');
   const [editRole, setEditRole] = useState<'employee' | 'admin'>('employee');
   const [editIsActive, setEditIsActive] = useState(true);
   const [editError, setEditError] = useState('');
@@ -130,6 +147,48 @@ export default function AdminDashboardPage() {
   const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>([]);
   const [failedAttempts, setFailedAttempts] = useState<FailedAttempt[]>([]);
   const [flaggedLogs, setFlaggedLogs] = useState<AttendanceLog[]>([]);
+  const [dashboardLeaves, setDashboardLeaves] = useState<LeaveRequest[]>([]);
+  const [dashboardEmployees, setDashboardEmployees] = useState<Profile[]>([]);
+  const [drilldownStatus, setDrilldownStatus] = useState<DrilldownStatus | null>(null);
+
+  // Delete Employee state
+  const [deletingEmp, setDeletingEmp] = useState<Profile | null>(null);
+  const [confirmDeleteInput, setConfirmDeleteInput] = useState('');
+  const [isDeletingEmp, setIsDeletingEmp] = useState(false);
+  const [deleteEmpError, setDeleteEmpError] = useState('');
+
+  // Audit Logs state
+  const [auditLogsList, setAuditLogsList] = useState<AuditLog[]>([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+  const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
+
+  // Holidays state
+  const [holidaysList, setHolidaysList] = useState<Holiday[]>([]);
+  const [newHolidayName, setNewHolidayName] = useState('');
+  const [newHolidayDate, setNewHolidayDate] = useState('');
+  const [newHolidayType, setNewHolidayType] = useState<'regular' | 'special_non_working' | 'special_working'>('regular');
+  const [addingHoliday, setAddingHoliday] = useState(false);
+
+  // Management Rates & Tier History state
+  const [rateEmp, setRateEmp] = useState<Profile | null>(null);
+  const [rateHistory, setRateHistory] = useState<EmployeeRate[]>([]);
+  const [loadingRates, setLoadingRates] = useState(false);
+  const [rateFormRegular, setRateFormRegular] = useState('');
+  const [rateFormOt, setRateFormOt] = useState('');
+  const [rateFormEffectiveFrom, setRateFormEffectiveFrom] = useState('');
+  const [rateFormRestDayOt, setRateFormRestDayOt] = useState('');
+  const [rateFormHolidayOt, setRateFormHolidayOt] = useState('');
+  const [savingRateTier, setSavingRateTier] = useState(false);
+  const [rateModalError, setRateModalError] = useState('');
+
+  // Bulk Rates CSV State
+  const [showBulkRatesModal, setShowBulkRatesModal] = useState(false);
+  const [bulkCsvText, setBulkCsvText] = useState('');
+  const [bulkPreviewData, setBulkPreviewData] = useState<any[] | null>(null);
+  const [loadingBulkPreview, setLoadingBulkPreview] = useState(false);
+  const [confirmingBulk, setConfirmingBulk] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+  const [bulkSuccessMsg, setBulkSuccessMsg] = useState('');
 
   // Entities
   const [employees, setEmployees] = useState<Profile[]>([]);
@@ -152,6 +211,8 @@ export default function AdminDashboardPage() {
         setAttendanceLogs(data.attendanceLogs || []);
         setFailedAttempts(data.failedAttempts || []);
         setFlaggedLogs(data.flaggedLogs || []);
+        setDashboardLeaves(data.leaves || []);
+        if (data.employees) setDashboardEmployees(data.employees);
       }
     } catch (e) {
       console.error(e);
@@ -216,8 +277,9 @@ export default function AdminDashboardPage() {
     loadAllEntities();
 
     // 1. Supabase Realtime subscription for instant live admin dashboard
+    const channelName = `admin-dashboard-${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
-      .channel('admin-dashboard-realtime')
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'attendance_logs' },
@@ -305,6 +367,9 @@ export default function AdminDashboardPage() {
     setEditDailyRate((emp.daily_rate || 0).toString());
     setEditOvertimeRate((emp.overtime_rate_per_hour || 0).toString());
     setEditPhone(emp.phone || '');
+    setEditWhatsapp(emp.whatsapp_number || '');
+    setEditGoogleEmail(emp.google_email || '');
+    setEditFacebookUrl(emp.facebook_url || '');
     setEditRole(emp.role);
     setEditIsActive(emp.is_active !== false);
     setEditError('');
@@ -326,6 +391,9 @@ export default function AdminDashboardPage() {
           daily_rate: Number(editDailyRate) || 0,
           overtime_rate_per_hour: Number(editOvertimeRate) || 0,
           phone: editPhone || null,
+          whatsapp_number: editWhatsapp || null,
+          google_email: editGoogleEmail || null,
+          facebook_url: editFacebookUrl || null,
           role: editRole,
           is_active: editIsActive,
         }),
@@ -343,30 +411,181 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Quick edit wage and overtime rate in Philippine Peso (₱)
-  const handleUpdateWage = async (emp: Profile) => {
-    const newDailyRateStr = prompt(`Set Daily Wage Rate (₱) for ${emp.full_name}:`, (emp.daily_rate || 610).toString());
-    if (newDailyRateStr === null) return;
-    const newDailyRate = parseFloat(newDailyRateStr);
-    if (isNaN(newDailyRate) || newDailyRate < 0) return alert('Invalid daily rate.');
+  // Management Rates & Tier History Handlers
+  const handleOpenRatesModal = async (emp: Profile) => {
+    setRateEmp(emp);
+    setRateModalError('');
+    setRateFormRegular(emp.daily_rate ? emp.daily_rate.toString() : '');
+    setRateFormOt(emp.overtime_rate_per_hour ? emp.overtime_rate_per_hour.toString() : '');
+    setRateFormEffectiveFrom(getPHDateString(new Date(), timezone));
+    setRateFormRestDayOt('');
+    setRateFormHolidayOt('');
+    setLoadingRates(true);
 
-    const newOtStr = prompt(`Set Overtime Rate per Hour (₱/hr) for ${emp.full_name}:`, (emp.overtime_rate_per_hour || 114.38).toString());
-    if (newOtStr === null) return;
-    const newOt = parseFloat(newOtStr);
-    if (isNaN(newOt) || newOt < 0) return alert('Invalid overtime rate.');
+    try {
+      const res = await fetch(`/api/admin/employees/${emp.id}/rates`);
+      if (res.ok) {
+        const data = await res.json();
+        setRateHistory(data.rates || []);
+      } else {
+        const err = await res.json();
+        setRateModalError(err.error || 'Failed to fetch rate tiers');
+      }
+    } catch {
+      setRateModalError('Network error loading rates history');
+    } finally {
+      setLoadingRates(false);
+    }
+  };
 
-    const res = await fetch(`/api/admin/employees/${emp.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        daily_rate: newDailyRate,
-        overtime_rate_per_hour: newOt,
-      }),
+  const handleSaveRateTier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rateEmp) return;
+    setRateModalError('');
+
+    const regularRate = parseFloat(rateFormRegular);
+    const otRate = parseFloat(rateFormOt);
+    if (isNaN(regularRate) || regularRate < 0) {
+      setRateModalError('Please enter a valid regular daily rate.');
+      return;
+    }
+    if (isNaN(otRate) || otRate < 0) {
+      setRateModalError('Please enter a valid overtime rate per hour.');
+      return;
+    }
+    if (!rateFormEffectiveFrom) {
+      setRateModalError('Effective from date is required.');
+      return;
+    }
+
+    setSavingRateTier(true);
+    try {
+      const payload: Record<string, any> = {
+        regular_rate: regularRate,
+        overtime_rate_per_hour: otRate,
+        effective_from: rateFormEffectiveFrom,
+      };
+      if (rateFormRestDayOt.trim() !== '') {
+        const v = parseFloat(rateFormRestDayOt);
+        if (!isNaN(v) && v >= 0) payload.rest_day_ot_rate = v;
+      }
+      if (rateFormHolidayOt.trim() !== '') {
+        const v = parseFloat(rateFormHolidayOt);
+        if (!isNaN(v) && v >= 0) payload.holiday_ot_rate = v;
+      }
+
+      const res = await fetch(`/api/admin/employees/${rateEmp.id}/rates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setRateModalError(data.error || 'Failed to save rate tier');
+      } else {
+        await handleOpenRatesModal(rateEmp);
+        loadAllEntities();
+      }
+    } catch {
+      setRateModalError('Network error saving rate tier');
+    } finally {
+      setSavingRateTier(false);
+    }
+  };
+
+  // Bulk Rates CSV Handlers
+  const handlePreviewBulkCsv = async () => {
+    setBulkError('');
+    setBulkSuccessMsg('');
+    if (!bulkCsvText.trim()) {
+      setBulkError('Please paste CSV content.');
+      return;
+    }
+
+    const lines = bulkCsvText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      setBulkError('CSV text is empty.');
+      return;
+    }
+
+    const firstLine = lines[0].toLowerCase();
+    const dataLines =
+      firstLine.includes('employee') || firstLine.includes('email') || firstLine.includes('regular')
+        ? lines.slice(1)
+        : lines;
+
+    const parsedRows = dataLines.map((line) => {
+      const parts = line.split(',').map((p) => p.trim().replace(/^["']|["']$/g, ''));
+      return {
+        identifier: parts[0] || '',
+        regular_rate: parseFloat(parts[1]) || 0,
+        overtime_rate_per_hour: parseFloat(parts[2]) || 0,
+        effective_from: parts[3] || getPHDateString(new Date(), timezone),
+        rest_day_ot_rate: parts[4] ? parseFloat(parts[4]) : undefined,
+        holiday_ot_rate: parts[5] ? parseFloat(parts[5]) : undefined,
+      };
     });
 
-    if (res.ok) {
-      alert(`Wage updated for ${emp.full_name}: ₱${newDailyRate.toFixed(2)}/day (OT: ₱${newOt.toFixed(2)}/hr)`);
-      loadAllEntities();
+    setLoadingBulkPreview(true);
+    try {
+      const res = await fetch('/api/admin/rates/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'preview', rows: parsedRows }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBulkError(data.error || 'Failed to preview CSV rates');
+      } else {
+        setBulkPreviewData(data.preview || []);
+      }
+    } catch {
+      setBulkError('Network error previewing bulk CSV');
+    } finally {
+      setLoadingBulkPreview(false);
+    }
+  };
+
+  const handleConfirmBulkRates = async () => {
+    if (!bulkPreviewData || bulkPreviewData.length === 0) return;
+    setBulkError('');
+    setConfirmingBulk(true);
+
+    try {
+      const validRows = bulkPreviewData
+        .filter((r) => r.matched && !r.error)
+        .map((r) => ({
+          employee_id: r.employeeId,
+          regular_rate: r.newRegularRate,
+          overtime_rate_per_hour: r.newOtRate,
+          effective_from: r.effectiveFrom,
+          rest_day_ot_rate: r.newRestDayOtRate,
+          holiday_ot_rate: r.newHolidayOtRate,
+        }));
+
+      const res = await fetch('/api/admin/rates/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'confirm', rows: validRows }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBulkError(data.error || 'Failed to confirm bulk rates');
+      } else {
+        setBulkSuccessMsg(`Successfully applied rates for ${data.insertedCount} employee(s).`);
+        setBulkPreviewData(null);
+        setBulkCsvText('');
+        loadAllEntities();
+      }
+    } catch {
+      setBulkError('Network error saving bulk rates');
+    } finally {
+      setConfirmingBulk(false);
     }
   };
 
@@ -421,14 +640,133 @@ export default function AdminDashboardPage() {
   };
 
   const handleResetPassword = async (empId: string) => {
-    const tempPass = prompt('Enter new temporary password (at least 6 characters):');
+    const tempPass = prompt('Enter new temporary password (min 8 characters, must include uppercase, lowercase, and a number):');
     if (!tempPass) return;
     const res = await fetch(`/api/admin/employees/${empId}/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ new_password: tempPass }),
     });
-    if (res.ok) alert('Temporary password set! Employee will be forced to change it on login.');
+    const data = await res.json();
+    if (res.ok) {
+      alert('Temporary password set! Employee will be forced to change it on login.');
+    } else {
+      alert(data.error || 'Failed to reset password');
+    }
+  };
+
+  const handleArchiveEmployee = async (empId: string, archive: boolean) => {
+    const action = archive ? 'archive' : 'reactivate';
+    const label = archive ? 'deactivate/archive' : 'reactivate';
+    if (!confirm(`Are you sure you want to ${label} this employee account?`)) return;
+    try {
+      const res = await fetch(`/api/admin/employees/${empId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await Promise.all([loadAllEntities(), loadDashboardData()]);
+      } else {
+        alert(data.error || 'Failed to update employee status');
+      }
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Error updating employee status');
+    }
+  };
+
+  const handleConfirmDeleteEmployee = async () => {
+    if (!deletingEmp) return;
+    setIsDeletingEmp(true);
+    setDeleteEmpError('');
+    try {
+      const res = await fetch(`/api/admin/employees/${deletingEmp.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmation_name: confirmDeleteInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteEmpError(data.error || 'Failed to delete employee.');
+        setIsDeletingEmp(false);
+        return;
+      }
+      setDeletingEmp(null);
+      setConfirmDeleteInput('');
+      await Promise.all([loadAllEntities(), loadDashboardData()]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error deleting employee.';
+      setDeleteEmpError(msg);
+    } finally {
+      setIsDeletingEmp(false);
+    }
+  };
+
+  const loadAuditLogs = async () => {
+    setLoadingAuditLogs(true);
+    try {
+      const res = await fetch('/api/admin/audit-logs');
+      if (res.ok) {
+        const d = await res.json();
+        setAuditLogsList(d.auditLogs || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingAuditLogs(false);
+    }
+  };
+
+  const loadHolidays = async () => {
+    try {
+      const res = await fetch('/api/admin/holidays');
+      if (res.ok) {
+        const d = await res.json();
+        setHolidaysList(d.holidays || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleAddHoliday = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newHolidayName || !newHolidayDate) return;
+    setAddingHoliday(true);
+    try {
+      const res = await fetch('/api/admin/holidays', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newHolidayName,
+          date: newHolidayDate,
+          type: newHolidayType,
+        }),
+      });
+      if (res.ok) {
+        setNewHolidayName('');
+        setNewHolidayDate('');
+        loadHolidays();
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Failed to add holiday');
+      }
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error adding holiday');
+    } finally {
+      setAddingHoliday(false);
+    }
+  };
+
+  const handleDeleteHoliday = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this holiday?')) return;
+    try {
+      const res = await fetch(`/api/admin/holidays?id=${id}`, { method: 'DELETE' });
+      if (res.ok) loadHolidays();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   // Add / Delete location
@@ -649,6 +987,18 @@ export default function AdminDashboardPage() {
             <Settings className="w-4 h-4" /> System Settings
           </button>
 
+          <button
+            onClick={() => {
+              handleSelectTab('audit');
+              loadAuditLogs();
+            }}
+            className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2.5 ${
+              activeTab === 'audit' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/60'
+            }`}
+          >
+            <ClipboardList className="w-4 h-4" /> Audit Logs
+          </button>
+
           {/* Download Website as App Drawer Button */}
           <div className="pt-3 mt-3 border-t border-slate-800/80">
             <InstallAppDrawerButton variant="drawer" />
@@ -689,37 +1039,127 @@ export default function AdminDashboardPage() {
                 </button>
               </div>
 
-              {/* Counts Grid */}
+              {/* Counts Grid - Clickable Drilldown Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <span className="text-[11px] text-slate-400 font-medium uppercase">Present</span>
+                <button
+                  type="button"
+                  onClick={() => setDrilldownStatus('present')}
+                  title="Click to see all on-time present employees"
+                  className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-850 p-4 rounded-2xl text-left transition-all duration-200 group active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-emerald-500/30 cursor-pointer shadow-sm relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400 font-medium uppercase group-hover:text-emerald-400 transition-colors">
+                      Present
+                    </span>
+                    <span className="text-[10px] text-slate-500 group-hover:text-emerald-400 transition-transform group-hover:translate-x-0.5">
+                      &rarr;
+                    </span>
+                  </div>
                   <div className="text-2xl font-black text-emerald-400 mt-1">{counts.present}</div>
-                </div>
+                  <div className="text-[10px] text-slate-500 group-hover:text-slate-300 mt-1 transition-colors flex items-center gap-1 font-medium">
+                    <span>View list</span>
+                  </div>
+                </button>
 
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <span className="text-[11px] text-slate-400 font-medium uppercase">Late</span>
+                <button
+                  type="button"
+                  onClick={() => setDrilldownStatus('late')}
+                  title="Click to see all late check-in employees"
+                  className="bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-850 p-4 rounded-2xl text-left transition-all duration-200 group active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer shadow-sm relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400 font-medium uppercase group-hover:text-amber-400 transition-colors">
+                      Late
+                    </span>
+                    <span className="text-[10px] text-slate-500 group-hover:text-amber-400 transition-transform group-hover:translate-x-0.5">
+                      &rarr;
+                    </span>
+                  </div>
                   <div className="text-2xl font-black text-amber-400 mt-1">{counts.late}</div>
-                </div>
+                  <div className="text-[10px] text-slate-500 group-hover:text-slate-300 mt-1 transition-colors flex items-center gap-1 font-medium">
+                    <span>View list</span>
+                  </div>
+                </button>
 
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <span className="text-[11px] text-slate-400 font-medium uppercase">Timed Out</span>
+                <button
+                  type="button"
+                  onClick={() => setDrilldownStatus('timedOut')}
+                  title="Click to see all employees who timed out"
+                  className="bg-slate-900 border border-slate-800 hover:border-blue-500/50 hover:bg-slate-850 p-4 rounded-2xl text-left transition-all duration-200 group active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-blue-500/30 cursor-pointer shadow-sm relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400 font-medium uppercase group-hover:text-blue-400 transition-colors">
+                      Timed Out
+                    </span>
+                    <span className="text-[10px] text-slate-500 group-hover:text-blue-400 transition-transform group-hover:translate-x-0.5">
+                      &rarr;
+                    </span>
+                  </div>
                   <div className="text-2xl font-black text-blue-400 mt-1">{counts.timedOut}</div>
-                </div>
+                  <div className="text-[10px] text-slate-500 group-hover:text-slate-300 mt-1 transition-colors flex items-center gap-1 font-medium">
+                    <span>View list</span>
+                  </div>
+                </button>
 
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <span className="text-[11px] text-slate-400 font-medium uppercase">On Leave</span>
+                <button
+                  type="button"
+                  onClick={() => setDrilldownStatus('onLeave')}
+                  title="Click to see all employees on scheduled leave"
+                  className="bg-slate-900 border border-slate-800 hover:border-purple-500/50 hover:bg-slate-850 p-4 rounded-2xl text-left transition-all duration-200 group active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-purple-500/30 cursor-pointer shadow-sm relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400 font-medium uppercase group-hover:text-purple-400 transition-colors">
+                      On Leave
+                    </span>
+                    <span className="text-[10px] text-slate-500 group-hover:text-purple-400 transition-transform group-hover:translate-x-0.5">
+                      &rarr;
+                    </span>
+                  </div>
                   <div className="text-2xl font-black text-purple-400 mt-1">{counts.onLeave}</div>
-                </div>
+                  <div className="text-[10px] text-slate-500 group-hover:text-slate-300 mt-1 transition-colors flex items-center gap-1 font-medium">
+                    <span>View list</span>
+                  </div>
+                </button>
 
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <span className="text-[11px] text-slate-400 font-medium uppercase">Absent</span>
+                <button
+                  type="button"
+                  onClick={() => setDrilldownStatus('absent')}
+                  title="Click to see who is absent today"
+                  className="bg-slate-900 border border-slate-800 hover:border-rose-500/50 hover:bg-slate-850 p-4 rounded-2xl text-left transition-all duration-200 group active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-rose-500/30 cursor-pointer shadow-sm relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400 font-medium uppercase group-hover:text-rose-400 transition-colors">
+                      Absent
+                    </span>
+                    <span className="text-[10px] text-slate-500 group-hover:text-rose-400 transition-transform group-hover:translate-x-0.5">
+                      &rarr;
+                    </span>
+                  </div>
                   <div className="text-2xl font-black text-rose-400 mt-1">{counts.absent}</div>
-                </div>
+                  <div className="text-[10px] text-slate-500 group-hover:text-slate-300 mt-1 transition-colors flex items-center gap-1 font-medium">
+                    <span>View list</span>
+                  </div>
+                </button>
 
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <span className="text-[11px] text-slate-400 font-medium uppercase">Flagged / Alerts</span>
+                <button
+                  type="button"
+                  onClick={() => setDrilldownStatus('flagged')}
+                  title="Click to see flagged scans and failed attempts"
+                  className="bg-slate-900 border border-slate-800 hover:border-rose-500/50 hover:bg-slate-850 p-4 rounded-2xl text-left transition-all duration-200 group active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-rose-500/30 cursor-pointer shadow-sm relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400 font-medium uppercase group-hover:text-rose-400 transition-colors">
+                      Flagged / Alerts
+                    </span>
+                    <span className="text-[10px] text-slate-500 group-hover:text-rose-400 transition-transform group-hover:translate-x-0.5">
+                      &rarr;
+                    </span>
+                  </div>
                   <div className="text-2xl font-black text-rose-500 mt-1">{counts.flagged}</div>
-                </div>
+                  <div className="text-[10px] text-slate-500 group-hover:text-slate-300 mt-1 transition-colors flex items-center gap-1 font-medium">
+                    <span>View alerts</span>
+                  </div>
+                </button>
               </div>
 
               {/* Today's Attendance Table */}
@@ -822,15 +1262,30 @@ export default function AdminDashboardPage() {
                 <div>
                   <h3 className="font-bold text-base text-white">Employee Directory</h3>
                   <p className="text-xs text-slate-400">
-                    Public sign-up is disabled. Accounts are provisioned here via Supabase Admin API.
+                    Public sign-up is disabled. Accounts are securely provisioned here by administrators.
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowAddEmpModal(true)}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md"
-                >
-                  <Plus className="w-4 h-4" /> Provision Account
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setBulkCsvText('');
+                      setBulkPreviewData(null);
+                      setBulkError('');
+                      setBulkSuccessMsg('');
+                      setShowBulkRatesModal(true);
+                    }}
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                    title="Bulk update management wage rates via CSV"
+                  >
+                    <UploadCloud className="w-4 h-4 text-emerald-400" /> Bulk Rates CSV
+                  </button>
+                  <button
+                    onClick={() => setShowAddEmpModal(true)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md"
+                  >
+                    <Plus className="w-4 h-4" /> Provision Account
+                  </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -840,9 +1295,10 @@ export default function AdminDashboardPage() {
                       <th className="pb-3 font-semibold">Name</th>
                       <th className="pb-3 font-semibold">Email</th>
                       <th className="pb-3 font-semibold">Role</th>
+                      <th className="pb-3 font-semibold">Connected Socials</th>
                       <th className="pb-3 font-semibold">Daily Rate / OT</th>
                       <th className="pb-3 font-semibold">Device</th>
-                      <th className="pb-3 font-semibold">Passkeys</th>
+                      <th className="pb-3 font-semibold">Status</th>
                       <th className="pb-3 font-semibold">Actions</th>
                     </tr>
                   </thead>
@@ -857,15 +1313,68 @@ export default function AdminDashboardPage() {
                           </span>
                         </td>
                         <td className="py-3">
+                          <div className="flex flex-col gap-1 min-w-[170px]">
+                            {/* WhatsApp */}
+                            {emp.whatsapp_number ? (
+                              <a
+                                href={`https://wa.me/${emp.whatsapp_number.replace(/[^\d]/g, '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition group text-[11px] w-fit"
+                                title="Open WhatsApp Chat"
+                              >
+                                <MessageSquare className="w-3 h-3 text-emerald-400 shrink-0" />
+                                <span className="font-semibold">{emp.whatsapp_number}</span>
+                                {emp.whatsapp_verified && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Verified" />
+                                )}
+                              </a>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                                <MessageSquare className="w-3 h-3 opacity-40 shrink-0" />
+                                <span>No WhatsApp</span>
+                              </span>
+                            )}
+
+                            {/* Gmail / Google */}
+                            {emp.google_email || (emp.email && emp.email.endsWith('@gmail.com')) ? (
+                              <a
+                                href={`mailto:${emp.google_email || emp.email}`}
+                                className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/20 transition group text-[11px] w-fit"
+                                title="Send Gmail"
+                              >
+                                <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24">
+                                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                                </svg>
+                                <span className="font-semibold truncate max-w-[150px]">
+                                  {emp.google_email || emp.email}
+                                </span>
+                              </a>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                                <Mail className="w-3 h-3 opacity-40 shrink-0" />
+                                <span>No Gmail</span>
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3">
                           <button
-                            onClick={() => handleUpdateWage(emp)}
+                            onClick={() => handleOpenRatesModal(emp)}
                             className="px-2 py-1 rounded-lg bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800/60 text-emerald-300 font-mono font-bold text-[11px] flex flex-col items-start gap-0.5 transition"
-                            title="Click to edit Daily Wage Rate and Overtime Rate"
+                            title="Click to view rate history and set new rate tier"
                           >
                             <div className="flex items-center gap-1">
-                              <span className="text-emerald-400 font-semibold">₱{(emp.daily_rate || 610).toFixed(2)}/day</span>
+                              <span className="text-emerald-400 font-semibold">
+                                {emp.daily_rate ? `₱${emp.daily_rate.toFixed(2)}/day` : 'Rate not set'}
+                              </span>
                             </div>
-                            <span className="text-[10px] text-emerald-500 font-normal">OT: ₱{(emp.overtime_rate_per_hour || 114.38).toFixed(2)}/hr</span>
+                            <span className="text-[10px] text-emerald-500 font-normal">
+                              {emp.overtime_rate_per_hour ? `OT: ₱${emp.overtime_rate_per_hour.toFixed(2)}/hr` : 'OT not set'}
+                            </span>
                           </button>
                         </td>
                         <td className="py-3 text-slate-400">
@@ -879,8 +1388,8 @@ export default function AdminDashboardPage() {
                         </td>
                         <td className="py-3 text-slate-400">
                           {emp.is_active === false ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-950 text-rose-300">
-                              Inactive
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-950/80 text-amber-300 border border-amber-800/60 inline-flex items-center gap-1">
+                              <Archive className="w-3 h-3" /> Archived
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-950 text-emerald-300">
@@ -918,6 +1427,42 @@ export default function AdminDashboardPage() {
                             >
                               <ShieldAlert className="w-4 h-4" />
                             </button>
+                            {emp.is_active === false ? (
+                              <button
+                                onClick={() => handleArchiveEmployee(emp.id, false)}
+                                className="p-1 hover:text-emerald-400 text-slate-400 hover:bg-emerald-500/10 rounded-lg transition"
+                                title="Reactivate Employee Account"
+                              >
+                                <UserCheck className="w-4 h-4 text-emerald-400" />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleArchiveEmployee(emp.id, true)}
+                                disabled={emp.id === currentUserProfile?.id || emp.is_super_admin}
+                                className="p-1 hover:text-amber-400 text-slate-400 hover:bg-amber-500/10 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Deactivate / Archive Employee (Preserves History)"
+                              >
+                                <Archive className="w-4 h-4 text-amber-400" />
+                              </button>
+                            )}
+                            {currentUserProfile?.is_super_admin && (
+                              <button
+                                onClick={() => {
+                                  setDeleteEmpError('');
+                                  setConfirmDeleteInput('');
+                                  setDeletingEmp(emp);
+                                }}
+                                disabled={emp.id === currentUserProfile?.id || emp.is_super_admin}
+                                className={`p-1 rounded-lg transition ${
+                                  emp.id === currentUserProfile?.id || emp.is_super_admin
+                                    ? 'text-slate-600 cursor-not-allowed opacity-30'
+                                    : 'hover:text-rose-400 text-slate-400 hover:bg-rose-500/10'
+                                }`}
+                                title="Permanent Deletion (Super Admin Only)"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1233,6 +1778,123 @@ export default function AdminDashboardPage() {
                   />
                 </div>
 
+                {/* Overtime Multipliers & Data Retention */}
+                <div className="border-t border-slate-800 pt-4 space-y-4">
+                  <div>
+                    <h4 className="font-bold text-sm text-amber-300">Management Rates &amp; DTR Computation Rules</h4>
+                    <p className="text-[11px] text-slate-400">
+                      Rates are set per employee by management. Configure standard daily hours, rounding, and deduction policies below.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.show_rates_to_employees ?? false}
+                        onChange={(e) =>
+                          setAppSettings({ ...settings, show_rates_to_employees: e.target.checked })
+                        }
+                        className="rounded border-slate-800 text-blue-600 focus:ring-blue-500 bg-slate-950"
+                      />
+                      <span className="text-xs text-slate-300 font-medium">
+                        Show Rates &amp; Gross Pay on Employee Dashboard / Reports (Default: OFF / Hidden from employees)
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.require_overtime_approval ?? true}
+                        onChange={(e) =>
+                          setAppSettings({ ...settings, require_overtime_approval: e.target.checked })
+                        }
+                        className="rounded border-slate-800 text-blue-600 focus:ring-blue-500 bg-slate-950"
+                      />
+                      <span className="text-xs text-slate-300 font-medium">
+                        Require Approved Overtime Request for Overtime Pay (Default: ON)
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.enable_special_day_rates ?? false}
+                        onChange={(e) =>
+                          setAppSettings({ ...settings, enable_special_day_rates: e.target.checked })
+                        }
+                        className="rounded border-slate-800 text-blue-600 focus:ring-blue-500 bg-slate-950"
+                      />
+                      <span className="text-xs text-slate-300 font-medium">
+                        Enable Special Day Overtime Overrides (Allows setting custom rest day and holiday OT rates per employee)
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1 text-xs">Standard Hours Per Day</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="1"
+                        max="24"
+                        value={settings.hours_per_day ?? 8}
+                        onChange={(e) =>
+                          setAppSettings({ ...settings, hours_per_day: Number(e.target.value) })
+                        }
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs"
+                      />
+                      <span className="text-[10px] text-slate-500">Hourly deduction rate = Daily wage / Hours per day</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1 text-xs">Late / Undertime Basis</label>
+                      <select
+                        value={settings.undertime_minutes_basis || 'exact'}
+                        onChange={(e) =>
+                          setAppSettings({ ...settings, undertime_minutes_basis: e.target.value as any })
+                        }
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs"
+                      >
+                        <option value="exact">Exact (Per-minute basis)</option>
+                        <option value="15_min_block">15-Minute Blocks (Rounded up)</option>
+                      </select>
+                      <span className="text-[10px] text-slate-500">Controls how late &amp; undertime deductions are counted</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1 text-xs">Overtime Rounding Rule</label>
+                      <select
+                        value={settings.overtime_rounding_rule || 'exact'}
+                        onChange={(e) =>
+                          setAppSettings({ ...settings, overtime_rounding_rule: e.target.value as any })
+                        }
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs"
+                      >
+                        <option value="exact">Exact (Nearest minute)</option>
+                        <option value="30_min_block">Full 30-Minute Blocks only</option>
+                      </select>
+                      <span className="text-[10px] text-slate-500">Applies after shift end and grace period</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1 text-xs">Attendance Data Retention (Years)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={settings.data_retention_years ?? 3}
+                      onChange={(e) =>
+                        setAppSettings({ ...settings, data_retention_years: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs"
+                    />
+                    <span className="text-[10px] text-slate-500">Permanent employee deletion is locked if records exist within this window (default: 3 years).</span>
+                  </div>
+                </div>
+
                 <button
                   type="submit"
                   className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition"
@@ -1241,6 +1903,183 @@ export default function AdminDashboardPage() {
                 </button>
               </form>
             </div>
+
+            {/* Holidays Management Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-amber-400" />
+                    Company &amp; Statutory Holidays
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Holidays recognized for DTR overtime multipliers and attendance expectations.
+                  </p>
+                </div>
+              </div>
+
+              {/* Add Holiday Form */}
+              <form onSubmit={handleAddHoliday} className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Holiday Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Labor Day"
+                    value={newHolidayName}
+                    onChange={(e) => setNewHolidayName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={newHolidayDate}
+                    onChange={(e) => setNewHolidayDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Holiday Type</label>
+                  <select
+                    value={newHolidayType}
+                    onChange={(e) => setNewHolidayType(e.target.value as any)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs"
+                  >
+                    <option value="regular">Regular Holiday (200% OT)</option>
+                    <option value="special_non_working">Special Non-Working (130% OT)</option>
+                    <option value="special_working">Special Working (130% OT)</option>
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="submit"
+                    disabled={addingHoliday}
+                    className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <Plus className="w-4 h-4" /> Add Holiday
+                  </button>
+                </div>
+              </form>
+
+              {/* Holidays Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400">
+                      <th className="pb-2.5 font-semibold">Date</th>
+                      <th className="pb-2.5 font-semibold">Holiday Name</th>
+                      <th className="pb-2.5 font-semibold">Type</th>
+                      <th className="pb-2.5 font-semibold text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {holidaysList.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-4 text-center text-slate-500">
+                          No holidays registered yet. Add company holidays above.
+                        </td>
+                      </tr>
+                    ) : (
+                      holidaysList.map((h) => (
+                        <tr key={h.id} className="hover:bg-slate-800/30">
+                          <td className="py-2.5 font-mono text-slate-300">{h.date}</td>
+                          <td className="py-2.5 font-medium text-white">{h.name}</td>
+                          <td className="py-2.5">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-950 text-amber-300">
+                              {h.type.replace(/_/g, ' ')}
+                            </span>
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <button
+                              onClick={() => handleDeleteHoliday(h.id)}
+                              className="p-1 hover:text-rose-400 text-slate-500 rounded transition"
+                              title="Delete Holiday"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            </div>
+          )}
+
+          {/* TAB 12: AUDIT LOGS */}
+          {activeTab === 'audit' && (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                    <ClipboardList className="w-5 h-5 text-blue-400" />
+                    Security &amp; Operational Audit Trail
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Read-only immutable log of wage changes, passkey/device resets, employee archival/deletion, and system settings modifications.
+                  </p>
+                </div>
+                <button
+                  onClick={loadAuditLogs}
+                  disabled={loadingAuditLogs}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-xl flex items-center gap-1.5 text-slate-300"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingAuditLogs ? 'animate-spin' : ''}`} /> Refresh
+                </button>
+              </div>
+
+              {loadingAuditLogs ? (
+                <div className="py-12 text-center text-slate-500 text-xs">Loading audit trail records...</div>
+              ) : auditLogsList.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-xs">No audit logs recorded yet.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400">
+                        <th className="pb-3 font-semibold">Timestamp</th>
+                        <th className="pb-3 font-semibold">Action</th>
+                        <th className="pb-3 font-semibold">Actor</th>
+                        <th className="pb-3 font-semibold">Target</th>
+                        <th className="pb-3 font-semibold">Details / Changes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                      {auditLogsList.map((log) => (
+                        <tr key={log.id} className="hover:bg-slate-800/30">
+                          <td className="py-3 text-slate-400 whitespace-nowrap">
+                            {new Date(log.created_at).toLocaleString('en-US', { timeZone: timezone, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </td>
+                          <td className="py-3">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-blue-950 text-blue-300 border border-blue-800/60">
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="py-3 text-slate-300 font-sans">
+                            {log.actor?.full_name || log.actor?.email || log.actor_id || 'System'}
+                          </td>
+                          <td className="py-3 text-slate-400">
+                            {log.target_type ? `${log.target_type}` : '--'}
+                          </td>
+                          <td className="py-3 font-sans">
+                            <button
+                              onClick={() => setSelectedAuditLog(log)}
+                              className="text-blue-400 hover:text-blue-300 hover:underline text-[11px] font-medium"
+                            >
+                              View Diff &amp; Payload &rarr;
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -1285,7 +2124,7 @@ export default function AdminDashboardPage() {
                 <input
                   type="password"
                   required
-                  placeholder="At least 6 characters"
+                  placeholder="Min 8 chars (1 upper, 1 lower, 1 number)"
                   value={empPassword}
                   onChange={(e) => setEmpPassword(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
@@ -1584,13 +2423,13 @@ export default function AdminDashboardPage() {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Phone / WhatsApp</label>
+                  <label className="block text-slate-300 mb-1 font-medium">Phone</label>
                   <input
                     type="text"
                     placeholder="+63 9..."
                     value={editPhone}
                     onChange={(e) => setEditPhone(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs"
                   />
                 </div>
                 <div>
@@ -1599,17 +2438,44 @@ export default function AdminDashboardPage() {
                     <select
                       value={editRole}
                       onChange={(e) => setEditRole(e.target.value as 'employee' | 'admin')}
-                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs"
                     >
                       <option value="employee">Employee</option>
                       <option value="admin">Administrator</option>
                     </select>
                   ) : (
-                    <div className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 capitalize flex items-center justify-between">
+                    <div className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 capitalize flex items-center justify-between text-xs">
                       <span>{editRole}</span>
                       <span className="text-[10px] text-amber-500 font-medium">Super Admin Only</span>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Social Channels: WhatsApp & Gmail */}
+              <div className="p-3 bg-slate-950/60 border border-slate-800/80 rounded-2xl space-y-2">
+                <span className="text-xs font-semibold text-slate-300 block">Connected Channels</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-slate-400 mb-1 text-[11px]">WhatsApp Number</label>
+                    <input
+                      type="text"
+                      placeholder="+63 9..."
+                      value={editWhatsapp}
+                      onChange={(e) => setEditWhatsapp(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-white text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1 text-[11px]">Gmail / Google Email</label>
+                    <input
+                      type="email"
+                      placeholder="user@gmail.com"
+                      value={editGoogleEmail}
+                      onChange={(e) => setEditGoogleEmail(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-white text-xs"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1644,6 +2510,576 @@ export default function AdminDashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Employee Status Drilldown Modal */}
+      {drilldownStatus && (
+        <StatusDrilldownModal
+          isOpen={Boolean(drilldownStatus)}
+          initialStatus={drilldownStatus}
+          selectedDate={selectedDate || getPHDateString(new Date(), timezone)}
+          timezone={timezone}
+          employees={dashboardEmployees.length > 0 ? dashboardEmployees : employees}
+          attendanceLogs={attendanceLogs}
+          leaves={dashboardLeaves}
+          failedAttempts={failedAttempts}
+          flaggedLogs={flaggedLogs}
+          counts={counts}
+          onClose={() => setDrilldownStatus(null)}
+          onOpenChat={() => {
+            handleSelectTab('chat');
+            setUnreadChatCount(0);
+          }}
+        />
+      )}
+
+      {/* Delete Employee Confirmation Modal */}
+      {deletingEmp && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in"
+          onClick={() => !isDeletingEmp && setDeletingEmp(null)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5 animate-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-white">Delete Employee Account</h3>
+                <p className="text-xs text-slate-400">This action is permanent and irreversible</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 text-xs space-y-2">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Employee Name:</span>
+                <strong className="text-white">{deletingEmp.full_name}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Email:</span>
+                <span className="text-slate-300 font-mono">{deletingEmp.email}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Role:</span>
+                <span className="uppercase text-slate-300 font-bold text-[10px] bg-slate-800 px-2 py-0.5 rounded-full">
+                  {deletingEmp.role}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-rose-300/90 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl leading-relaxed">
+              ⚠️ Permanent deletion is strictly restricted to Super Admins. It permanently erases the user account. Permanent deletion is locked if records exist within the retention window (default 3 years).
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-slate-300 font-semibold block">
+                Type employee full name <span className="text-rose-400 font-mono font-bold">&quot;{deletingEmp.full_name}&quot;</span> to unlock permanent deletion:
+              </label>
+              <input
+                type="text"
+                placeholder={deletingEmp.full_name}
+                value={confirmDeleteInput}
+                onChange={(e) => setConfirmDeleteInput(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 text-white font-mono focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+
+            {deleteEmpError && (
+              <p className="text-xs text-rose-400 font-medium bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/30">
+                {deleteEmpError}
+              </p>
+            )}
+
+            <div className="flex flex-col gap-2 pt-2">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={isDeletingEmp}
+                  onClick={() => {
+                    setDeletingEmp(null);
+                    setConfirmDeleteInput('');
+                  }}
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded-xl font-semibold text-xs transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingEmp || confirmDeleteInput.trim().toLowerCase() !== deletingEmp.full_name.trim().toLowerCase()}
+                  onClick={handleConfirmDeleteEmployee}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-semibold text-xs shadow-md transition flex items-center justify-center gap-1.5"
+                >
+                  {isDeletingEmp ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Permanently Delete</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const empId = deletingEmp.id;
+                  setDeletingEmp(null);
+                  setConfirmDeleteInput('');
+                  handleArchiveEmployee(empId, true);
+                }}
+                className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold transition"
+              >
+                Archive Employee Instead (Recommended)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audit Log Detail Modal */}
+      {selectedAuditLog && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setSelectedAuditLog(null)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-xl w-full shadow-2xl space-y-4 animate-in zoom-in-95 max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-base text-white">Audit Log Entry Details</h3>
+                <span className="text-xs font-mono text-blue-400 font-bold">{selectedAuditLog.action}</span>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {new Date(selectedAuditLog.created_at).toLocaleString()}
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 text-xs pr-1">
+              <div>
+                <span className="text-[11px] text-slate-400 block mb-1 font-semibold">Actor / Performed By:</span>
+                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-slate-300">
+                  {selectedAuditLog.actor?.full_name || 'System / Service'} ({selectedAuditLog.actor?.email || selectedAuditLog.actor_id})
+                </div>
+              </div>
+
+              {selectedAuditLog.old_value && (
+                <div>
+                  <span className="text-[11px] text-rose-400 block mb-1 font-semibold">Previous State (old_value):</span>
+                  <pre className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[10px] text-rose-300 overflow-x-auto">
+                    {JSON.stringify(selectedAuditLog.old_value, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {selectedAuditLog.new_value && (
+                <div>
+                  <span className="text-[11px] text-emerald-400 block mb-1 font-semibold">Updated State (new_value):</span>
+                  <pre className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[10px] text-emerald-300 overflow-x-auto">
+                    {JSON.stringify(selectedAuditLog.new_value, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {selectedAuditLog.details && (
+                <div>
+                  <span className="text-[11px] text-slate-400 block mb-1 font-semibold">Payload &amp; Context:</span>
+                  <pre className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[10px] text-slate-300 overflow-x-auto">
+                    {JSON.stringify(selectedAuditLog.details, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setSelectedAuditLog(null)}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rate History & Tier Modal */}
+      {rateEmp && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in"
+          onClick={() => !savingRateTier && setRateEmp(null)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <History className="w-5 h-5 text-emerald-400" />
+                  Management Rates &amp; Wage History
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {rateEmp.full_name} ({rateEmp.email})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRateEmp(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {rateModalError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+                {rateModalError}
+              </div>
+            )}
+
+            {/* Form to insert new rate tier */}
+            <form onSubmit={handleSaveRateTier} className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+              <h4 className="font-bold text-xs text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Plus className="w-3.5 h-3.5" /> Set New Rate Tier
+              </h4>
+              <p className="text-[11px] text-slate-400">
+                New rates take effect from the chosen date forward. Past DTRs and historical reports are never rewritten.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Effective Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={rateFormEffectiveFrom}
+                    onChange={(e) => setRateFormEffectiveFrom(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Daily Wage Rate (₱)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    placeholder="e.g. 610.00"
+                    value={rateFormRegular}
+                    onChange={(e) => setRateFormRegular(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Overtime Rate / hr (₱)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    placeholder="e.g. 114.38"
+                    value={rateFormOt}
+                    onChange={(e) => setRateFormOt(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              {settings?.enable_special_day_rates && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800/60">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Rest Day OT Rate / hr (₱) <span className="text-[10px] text-slate-500 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Leave blank to use standard OT"
+                      value={rateFormRestDayOt}
+                      onChange={(e) => setRateFormRestDayOt(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Holiday OT Rate / hr (₱) <span className="text-[10px] text-slate-500 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Leave blank to use standard OT"
+                      value={rateFormHolidayOt}
+                      onChange={(e) => setRateFormHolidayOt(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={savingRateTier}
+                className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition shadow-md flex items-center justify-center gap-1.5"
+              >
+                {savingRateTier ? 'Saving Rate Tier...' : 'Save & Apply New Rate Tier'}
+              </button>
+            </form>
+
+            {/* History Table */}
+            <div className="space-y-2">
+              <h4 className="font-bold text-xs text-slate-300 uppercase tracking-wider">Historical Rate Tiers</h4>
+              {loadingRates ? (
+                <p className="text-xs text-slate-500">Loading rate history...</p>
+              ) : rateHistory.length === 0 ? (
+                <p className="text-xs text-slate-500">No previous rate history records found.</p>
+              ) : (
+                <div className="overflow-x-auto border border-slate-800 rounded-2xl">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-950/60 text-slate-400 border-b border-slate-800">
+                        <th className="p-2.5 font-semibold">Effective From</th>
+                        <th className="p-2.5 font-semibold">Daily Wage</th>
+                        <th className="p-2.5 font-semibold">OT Rate / hr</th>
+                        {settings?.enable_special_day_rates && (
+                          <>
+                            <th className="p-2.5 font-semibold">Rest Day OT</th>
+                            <th className="p-2.5 font-semibold">Holiday OT</th>
+                          </>
+                        )}
+                        <th className="p-2.5 font-semibold">Logged At</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {rateHistory.map((tier) => (
+                        <tr key={tier.id} className="hover:bg-slate-800/20">
+                          <td className="p-2.5 text-emerald-400 font-semibold">{tier.effective_from}</td>
+                          <td className="p-2.5 text-white">₱{Number(tier.regular_rate).toFixed(2)}</td>
+                          <td className="p-2.5 text-amber-300">₱{Number(tier.overtime_rate_per_hour).toFixed(2)}</td>
+                          {settings?.enable_special_day_rates && (
+                            <>
+                              <td className="p-2.5 text-slate-300">
+                                {tier.rest_day_ot_rate ? `₱${Number(tier.rest_day_ot_rate).toFixed(2)}` : '—'}
+                              </td>
+                              <td className="p-2.5 text-slate-300">
+                                {tier.holiday_ot_rate ? `₱${Number(tier.holiday_ot_rate).toFixed(2)}` : '—'}
+                              </td>
+                            </>
+                          )}
+                          <td className="p-2.5 text-[10px] text-slate-500">
+                            {new Date(tier.created_at).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setRateEmp(null)}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Rates CSV Modal */}
+      {showBulkRatesModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in"
+          onClick={() => !confirmingBulk && setShowBulkRatesModal(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-3xl w-full shadow-2xl space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <UploadCloud className="w-5 h-5 text-emerald-400" />
+                  Bulk Update Management Rates via CSV
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Update employee daily wages and overtime rates in bulk with effective dates.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBulkRatesModal(false)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {bulkError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+                {bulkError}
+              </div>
+            )}
+
+            {bulkSuccessMsg && (
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs">
+                {bulkSuccessMsg}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">CSV Format Specification</label>
+                <p className="text-[11px] text-slate-400 mb-2">
+                  Columns: <code className="text-amber-300 bg-slate-950 px-1.5 py-0.5 rounded">employee (email/name/id), regular_rate, overtime_rate_per_hour, effective_from (YYYY-MM-DD)</code>
+                </p>
+                <pre className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[11px] text-slate-300 overflow-x-auto">
+{`employee,regular_rate,overtime_rate_per_hour,effective_from
+juan@company.com,650.00,121.88,2026-11-01
+maria@company.com,700.00,131.25,2026-11-01`}
+                </pre>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-300">Paste CSV Text or Upload File</label>
+                  <label className="text-[11px] text-blue-400 hover:underline cursor-pointer">
+                    Browse File (.csv, .txt)
+                    <input
+                      type="file"
+                      accept=".csv,.txt"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            setBulkCsvText((ev.target?.result as string) || '');
+                          };
+                          reader.readAsText(file);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                <textarea
+                  rows={5}
+                  value={bulkCsvText}
+                  onChange={(e) => setBulkCsvText(e.target.value)}
+                  placeholder="Paste CSV rows here..."
+                  className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handlePreviewBulkCsv}
+                disabled={loadingBulkPreview}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition shadow-md"
+              >
+                {loadingBulkPreview ? 'Validating CSV...' : 'Preview Changes'}
+              </button>
+            </div>
+
+            {/* Preview Results Table */}
+            {bulkPreviewData && (
+              <div className="space-y-3 pt-3 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-xs text-amber-300 uppercase tracking-wider">
+                    Validation Preview ({bulkPreviewData.filter((r) => r.matched && !r.error).length} valid, {bulkPreviewData.filter((r) => !r.matched || r.error).length} errors)
+                  </h4>
+                </div>
+
+                <div className="overflow-x-auto border border-slate-800 rounded-2xl max-h-60 overflow-y-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-950/60 text-slate-400 border-b border-slate-800">
+                        <th className="p-2.5 font-semibold">Status</th>
+                        <th className="p-2.5 font-semibold">Employee</th>
+                        <th className="p-2.5 font-semibold">Regular Rate</th>
+                        <th className="p-2.5 font-semibold">OT Rate / hr</th>
+                        <th className="p-2.5 font-semibold">Effective From</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {bulkPreviewData.map((row, idx) => (
+                        <tr key={idx} className={row.matched && !row.error ? 'hover:bg-slate-800/20' : 'bg-rose-950/20'}>
+                          <td className="p-2.5">
+                            {row.matched && !row.error ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-950 text-emerald-400 border border-emerald-800/60">
+                                Match
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-950 text-rose-400 border border-rose-800/60" title={row.error}>
+                                Error: {row.error}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2.5">
+                            <div className="font-medium text-white">{row.fullName || row.identifier}</div>
+                            {row.email && <div className="text-[10px] text-slate-400">{row.email}</div>}
+                          </td>
+                          <td className="p-2.5 font-mono">
+                            <span className="text-slate-400">₱{Number(row.oldRegularRate || 0).toFixed(2)}</span>
+                            <span className="text-slate-500 mx-1">&rarr;</span>
+                            <span className="text-emerald-400 font-bold">₱{Number(row.newRegularRate).toFixed(2)}</span>
+                          </td>
+                          <td className="p-2.5 font-mono">
+                            <span className="text-slate-400">₱{Number(row.oldOtRate || 0).toFixed(2)}</span>
+                            <span className="text-slate-500 mx-1">&rarr;</span>
+                            <span className="text-amber-300 font-bold">₱{Number(row.newOtRate).toFixed(2)}</span>
+                          </td>
+                          <td className="p-2.5 font-mono text-emerald-300">{row.effectiveFrom}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmBulkRates}
+                  disabled={confirmingBulk || bulkPreviewData.filter((r) => r.matched && !r.error).length === 0}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition shadow-md"
+                >
+                  {confirmingBulk ? 'Applying Rates...' : 'Confirm & Apply Rates'}
+                </button>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowBulkRatesModal(false)}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { validatePasswordStrength } from '@/lib/password-rules';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,8 +13,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { password } = body;
 
-    if (!password || password.length < 6) {
-      return NextResponse.json({ error: 'New password must be at least 6 characters long.' }, { status: 400 });
+    const passCheck = validatePasswordStrength(password);
+    if (!passCheck.valid) {
+      return NextResponse.json({ error: passCheck.error }, { status: 400 });
     }
 
     const adminClient = createAdminClient();

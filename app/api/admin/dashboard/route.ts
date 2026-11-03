@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     // 1. Fetch all active employees
     let employeesQuery = adminClient
       .from('profiles')
-      .select('id, full_name, email, role, avatar_url, is_active, department_id, shift_id, department:departments(name), shift:shifts(name, start_time, end_time)')
+      .select('id, full_name, email, role, avatar_url, phone, is_active, department_id, shift_id, department:departments(name), shift:shifts(name, start_time, end_time)')
       .eq('role', 'employee')
       .eq('is_active', true);
 
@@ -41,13 +41,14 @@ export async function GET(req: NextRequest) {
 
     const { data: employees } = await employeesQuery;
     const totalEmployees = employees?.length || 0;
+    const employeeIdSet = new Set((employees || []).map((e) => e.id));
 
     // 2. Fetch today's attendance logs
     const { data: logs } = await adminClient
       .from('attendance_logs')
       .select(`
         *,
-        employee:profiles(id, full_name, email, avatar_url, department:departments(name), shift:shifts(name)),
+        employee:profiles(id, full_name, email, avatar_url, phone, department:departments(name), shift:shifts(name, start_time, end_time)),
         location_in:locations!location_in_id(id, name, lat, lng, radius_meters),
         location_out:locations!location_out_id(id, name, lat, lng, radius_meters),
         breaks(*)
@@ -61,47 +62,62 @@ export async function GET(req: NextRequest) {
       profile: l.employee || l.profile,
     }));
 
+    // Filter logs by department if selected
+    const departmentLogs = departmentId
+      ? formattedLogs.filter((l) => employeeIdSet.has(l.employee_id))
+      : formattedLogs;
+
     // 3. Fetch approved leaves for today
     const { data: leaves } = await adminClient
       .from('leave_requests')
-      .select('*, employee:profiles(id, full_name, email, department:departments(name))')
+      .select('*, employee:profiles(id, full_name, email, avatar_url, phone, department:departments(name), shift:shifts(name, start_time, end_time))')
       .eq('status', 'approved')
       .lte('start_date', date)
       .gte('end_date', date);
 
-    // 4. Compute metrics
-    const attendanceMap = new Map((logs || []).map((l) => [l.employee_id, l]));
-    const leaveMap = new Map((leaves || []).map((lv) => [lv.employee_id, lv]));
+    // Filter leaves by department if selected
+    const departmentLeaves = departmentId
+      ? (leaves || []).filter((lv) => employeeIdSet.has(lv.employee_id))
+      : (leaves || []);
 
+    // 4. Compute metrics
     let presentCount = 0;
     let lateCount = 0;
     let timedOutCount = 0;
-    let onLeaveCount = leaves?.length || 0;
+    let onLeaveCount = departmentLeaves.length;
 
-    (logs || []).forEach((log) => {
+    departmentLogs.forEach((log) => {
       if (log.status === 'late') lateCount++;
       else presentCount++;
 
       if (log.time_out) timedOutCount++;
     });
 
-    const activeTapsCount = (logs || []).length;
+    const activeTapsCount = departmentLogs.length;
     const absentCount = Math.max(0, totalEmployees - activeTapsCount - onLeaveCount);
 
     // 5. Fetch recent failed attempts and alerts
     const { data: recentFailed } = await adminClient
       .from('failed_attempts')
-      .select('*, profile:profiles(id, full_name, email)')
+      .select('*, profile:profiles(id, full_name, email, avatar_url, department:departments(name))')
       .gte('created_at', `${date}T00:00:00Z`)
       .order('created_at', { ascending: false })
       .limit(10);
 
+    const filteredFailed = departmentId
+      ? (recentFailed || []).filter((f) => f.employee_id && employeeIdSet.has(f.employee_id))
+      : (recentFailed || []);
+
     // 6. Fetch flagged entries
     const { data: flaggedLogs } = await adminClient
       .from('attendance_logs')
-      .select('*, employee:profiles(id, full_name, email)')
+      .select('*, employee:profiles(id, full_name, email, avatar_url, department:departments(name))')
       .eq('date', date)
       .eq('flagged', true);
+
+    const filteredFlagged = departmentId
+      ? (flaggedLogs || []).filter((fl) => employeeIdSet.has(fl.employee_id))
+      : (flaggedLogs || []);
 
     return NextResponse.json({
       date,
@@ -112,12 +128,13 @@ export async function GET(req: NextRequest) {
         timedOut: timedOutCount,
         absent: absentCount,
         onLeave: onLeaveCount,
-        flagged: (flaggedLogs?.length || 0) + (recentFailed?.length || 0),
+        flagged: filteredFlagged.length + filteredFailed.length,
       },
-      attendanceLogs: formattedLogs || [],
-      leaves: leaves || [],
-      failedAttempts: recentFailed || [],
-      flaggedLogs: (flaggedLogs || []).map((fl) => ({ ...fl, profile: fl.employee || fl.profile })),
+      employees: employees || [],
+      attendanceLogs: departmentLogs,
+      leaves: departmentLeaves,
+      failedAttempts: filteredFailed,
+      flaggedLogs: filteredFlagged.map((fl) => ({ ...fl, profile: fl.employee || fl.profile })),
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Dashboard data fetch error';

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { checkGeofence } from '@/lib/geofence';
+import { checkGeofence, calculateHaversineDistance } from '@/lib/geofence';
 import { getWebAuthnConfig, base64UrlToBuffer } from '@/lib/webauthn';
 import { getPHDateString, parseShiftToPHDate, formatPHTime, getTimezoneOffsetString } from '@/lib/ph-time';
 import { getCompanyTimezone } from '@/lib/company-timezone';
@@ -43,30 +43,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User profile not found or account is deactivated' }, { status: 403 });
     }
 
-    // 2. Device binding check
-    if (profile.device_id && profile.device_id !== device_id) {
-      await adminClient.from('failed_attempts').insert({
-        employee_id: user.id,
-        attempt_type: action || 'time_in',
-        lat,
-        lng,
-        accuracy,
-        device_id,
-        reason: 'Device binding mismatch. This account is registered to another mobile device.',
-      });
+    // 2. Device binding check (Enforced from Passkey Enrollment)
+    if (profile.device_id) {
+      if (!device_id || profile.device_id !== device_id) {
+        await adminClient.from('failed_attempts').insert({
+          employee_id: user.id,
+          attempt_type: action || 'time_in',
+          lat,
+          lng,
+          accuracy,
+          device_id,
+          reason: `Device not recognized. Registered device: ${profile.device_id}, Request device: ${device_id || 'none'}.`,
+        });
 
-      return NextResponse.json(
-        { error: 'Device mismatch: this account is bound to another phone. Contact Admin to reset.' },
-        { status: 403 }
-      );
-    }
-
-    // If profile has no bound device, bind this device now
-    if (!profile.device_id && device_id) {
-      await adminClient
-        .from('profiles')
-        .update({ device_id, updated_at: new Date().toISOString() })
-        .eq('id', user.id);
+        return NextResponse.json(
+          { error: 'Device not recognized, contact your admin.' },
+          { status: 403 }
+        );
+      }
     }
 
     // 3. Fetch app settings
@@ -222,10 +216,21 @@ export async function POST(req: NextRequest) {
           .from('passkey_credentials')
           .select('*')
           .eq('credential_id', credentialId)
+          .eq('employee_id', user.id)
           .single();
 
         if (!credential) {
-          return NextResponse.json({ error: 'Fingerprint credential not recognized on this device.' }, { status: 400 });
+          const reason = 'Fingerprint credential not registered to this employee account.';
+          await adminClient.from('failed_attempts').insert({
+            employee_id: user.id,
+            attempt_type: action || 'time_in',
+            lat,
+            lng,
+            accuracy,
+            device_id,
+            reason,
+          });
+          return NextResponse.json({ error: reason }, { status: 400 });
         }
 
         const verification = await verifyAuthenticationResponse({
@@ -289,6 +294,37 @@ export async function POST(req: NextRequest) {
     const serverTimestamp = serverNow.toISOString();
     const today = getPHDateString(serverNow, activeTz);
 
+    // Check last attendance log for GPS mock coordinates or impossible travel
+    const { data: lastLog } = await adminClient
+      .from('attendance_logs')
+      .select('lat_in, lng_in, time_in')
+      .eq('employee_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (lastLog && lastLog.lat_in !== null && lastLog.lng_in !== null) {
+      // Identical coordinates repeatedly (real GPS always has micro-variance)
+      if (
+        Math.abs(Number(lastLog.lat_in) - lat) < 0.000001 &&
+        Math.abs(Number(lastLog.lng_in) - lng) < 0.000001
+      ) {
+        isFlagged = true;
+        flagReason = (flagReason ? flagReason + ' ' : '') + 'Identical coordinates detected repeatedly (mock location suspected).';
+      }
+
+      // Impossible travel check (>180 km/h between taps)
+      if (lastLog.time_in) {
+        const distMeters = calculateHaversineDistance(Number(lastLog.lat_in), Number(lastLog.lng_in), lat, lng);
+        const elapsedSecs = Math.max(1, (serverNow.getTime() - new Date(lastLog.time_in).getTime()) / 1000);
+        const speedKmh = (distMeters / 1000) / (elapsedSecs / 3600);
+        if (elapsedSecs < 7200 && distMeters > 50000 && speedKmh > 180) {
+          isFlagged = true;
+          flagReason = (flagReason ? flagReason + ' ' : '') + `Impossible travel speed detected (${Math.round(speedKmh)} km/h across ${Math.round(distMeters / 1000)} km).`;
+        }
+      }
+    }
+
     // Check failed attempts today
     const { count: failedCount } = await adminClient
       .from('failed_attempts')
@@ -300,6 +336,12 @@ export async function POST(req: NextRequest) {
       isFlagged = true;
       flagReason = (flagReason ? flagReason + ' ' : '') + `Multiple failed attempts recorded today (${failedCount}).`;
     }
+
+    // Compute wage snapshots
+    const snapDaily = Number(profile.daily_rate) || 610;
+    const snapHourly = Number(profile.hourly_rate) || Number((snapDaily / 8).toFixed(2));
+    const snapOtMultiplier = Number(appSettings?.overtime_multiplier_ordinary) || 1.25;
+    const snapOtRate = Number(profile.overtime_rate_per_hour) || Number((snapHourly * snapOtMultiplier).toFixed(2));
 
     const shift = profile.shift;
 
@@ -345,6 +387,10 @@ export async function POST(req: NextRequest) {
           verification_method: verificationMethod,
           status,
           late_minutes: lateMinutes,
+          daily_rate: snapDaily,
+          hourly_rate: snapHourly,
+          overtime_rate_per_hour: snapOtRate,
+          overtime_multiplier: snapOtMultiplier,
           selfie_url: selfieUrl || null,
           flagged: isFlagged,
           flag_reason: flagReason,
@@ -414,6 +460,12 @@ export async function POST(req: NextRequest) {
           hours_worked: Number(totalHours.toFixed(2)),
           undertime_minutes: undertimeMinutes,
           overtime_minutes: overtimeMinutes,
+          daily_rate: activeLog.daily_rate || snapDaily,
+          hourly_rate: activeLog.hourly_rate || snapHourly,
+          overtime_rate_per_hour: activeLog.overtime_rate_per_hour || snapOtRate,
+          overtime_multiplier: activeLog.overtime_multiplier || snapOtMultiplier,
+          flagged: activeLog.flagged || isFlagged,
+          flag_reason: activeLog.flag_reason || flagReason,
           status: activeLog.status === 'late' ? 'late' : 'completed',
           updated_at: serverTimestamp,
         })

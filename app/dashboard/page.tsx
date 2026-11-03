@@ -147,8 +147,9 @@ export default function EmployeeDashboardPage() {
     loadData();
 
     // 1. Supabase Realtime channel for live employee updates
+    const channelName = `emp-dashboard-${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
-      .channel('employee-dashboard-realtime')
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'attendance_logs' },

@@ -1,20 +1,157 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getPHDateString } from '@/lib/ph-time';
 import { getCompanyTimezone } from '@/lib/company-timezone';
+import { base64UrlToBuffer, getWebAuthnConfig } from '@/lib/webauthn';
+import { VerificationMethod } from '@/types/database.types';
 
 export async function POST(req: NextRequest) {
   try {
+    const { rpID, origin } = getWebAuthnConfig(req);
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
-    const { action, attendance_id } = body; // action: 'break_in' | 'break_out'
+    const { action, attendance_id, authResponse, fallbackPassword, device_id } = body; // action: 'break_in' | 'break_out'
 
     const adminClient = createAdminClient();
+
+    // 1. Fetch user profile & app settings
+    const { data: profile } = await adminClient
+      .from('profiles')
+      .select('id, email, role, device_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+
+    // Check device binding if device is bound
+    if (profile.device_id && device_id && profile.device_id !== device_id) {
+      await adminClient.from('failed_attempts').insert({
+        employee_id: user.id,
+        attempt_type: action || 'break_in',
+        device_id,
+        reason: 'Device binding mismatch on break action.',
+      });
+      return NextResponse.json({ error: 'Device not recognized, contact your admin.' }, { status: 403 });
+    }
+
+    const { data: appSettings } = await adminClient
+      .from('app_settings')
+      .select('*')
+      .eq('id', 'global')
+      .single();
+
+    const biometricMode = appSettings?.biometric_mode ?? 'always';
+    const allowFallback = appSettings?.allow_fallback ?? true;
+
+    // Determine if biometric is required for breaks
+    let isBiometricRequired = false;
+    if (biometricMode === 'always') {
+      isBiometricRequired = true;
+    } else if (biometricMode === 'random') {
+      const rand = Math.floor(Math.random() * 100) + 1;
+      isBiometricRequired = rand <= (appSettings?.biometric_random_percentage ?? 30);
+    }
+
+    let verificationMethod: VerificationMethod = 'none';
+
+    if (isBiometricRequired) {
+      if (fallbackPassword) {
+        if (!allowFallback) {
+          return NextResponse.json({ error: 'Biometric fallback is disabled by administrator.' }, { status: 403 });
+        }
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email: profile.email,
+          password: fallbackPassword,
+        });
+        if (signInErr) {
+          await adminClient.from('failed_attempts').insert({
+            employee_id: user.id,
+            attempt_type: action || 'break_in',
+            device_id,
+            reason: 'Invalid fallback password provided on break action.',
+          });
+          return NextResponse.json({ error: 'Invalid fallback password.' }, { status: 401 });
+        }
+        verificationMethod = 'fallback';
+      } else if (authResponse) {
+        // Retrieve challenge
+        const { data: challengeRecord } = await adminClient
+          .from('webauthn_challenges')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('type', 'authentication')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!challengeRecord || new Date(challengeRecord.expires_at) < new Date()) {
+          return NextResponse.json({ error: 'Authentication challenge expired (60s limit). Please retry.' }, { status: 400 });
+        }
+
+        const credentialId = authResponse.id;
+        const { data: credential } = await adminClient
+          .from('passkey_credentials')
+          .select('*')
+          .eq('credential_id', credentialId)
+          .eq('employee_id', user.id)
+          .single();
+
+        if (!credential) {
+          await adminClient.from('failed_attempts').insert({
+            employee_id: user.id,
+            attempt_type: action || 'break_in',
+            device_id,
+            reason: 'Fingerprint credential not registered to this employee account.',
+          });
+          return NextResponse.json({ error: 'Fingerprint credential not recognized.' }, { status: 400 });
+        }
+
+        const verification = await verifyAuthenticationResponse({
+          response: authResponse,
+          expectedChallenge: challengeRecord.challenge,
+          expectedOrigin: origin,
+          expectedRPID: rpID,
+          credential: {
+            id: credential.credential_id,
+            publicKey: base64UrlToBuffer(credential.public_key) as any,
+            counter: Number(credential.counter),
+          },
+          requireUserVerification: true,
+        });
+
+        if (!verification.verified || !verification.authenticationInfo) {
+          await adminClient.from('failed_attempts').insert({
+            employee_id: user.id,
+            attempt_type: action || 'break_in',
+            device_id,
+            reason: 'Fingerprint verification failed on break action.',
+          });
+          return NextResponse.json({ error: 'Biometric verification could not be validated.' }, { status: 400 });
+        }
+
+        // Update signature counter & delete challenge
+        await adminClient
+          .from('passkey_credentials')
+          .update({ counter: verification.authenticationInfo.newCounter })
+          .eq('id', credential.id);
+
+        await adminClient.from('webauthn_challenges').delete().eq('id', challengeRecord.id);
+
+        verificationMethod = 'biometric';
+      } else {
+        return NextResponse.json(
+          { error: 'Biometric prompt required. Please tap the fingerprint sensor.' },
+          { status: 400 }
+        );
+      }
+    }
+
     const activeTz = await getCompanyTimezone();
     const serverNow = new Date();
     const today = getPHDateString(serverNow, activeTz);
@@ -55,7 +192,7 @@ export async function POST(req: NextRequest) {
           attendance_id: targetAttendanceId,
           employee_id: user.id,
           break_start: serverNow.toISOString(),
-          verification_method: 'biometric',
+          verification_method: verificationMethod,
         })
         .select()
         .single();
@@ -66,6 +203,7 @@ export async function POST(req: NextRequest) {
         success: true,
         action: 'break_in',
         break: newBreak,
+        verificationMethod,
         message: 'Break started. Enjoy your rest!',
       });
     } else {
@@ -89,6 +227,7 @@ export async function POST(req: NextRequest) {
         .update({
           break_end: serverNow.toISOString(),
           duration_minutes: durationMinutes,
+          verification_method: verificationMethod,
         })
         .eq('id', activeBreak.id)
         .select()
@@ -101,6 +240,7 @@ export async function POST(req: NextRequest) {
         action: 'break_out',
         break: updatedBreak,
         durationMinutes,
+        verificationMethod,
         message: `Break concluded. Total break time: ${durationMinutes} minutes.`,
       });
     }
@@ -109,4 +249,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

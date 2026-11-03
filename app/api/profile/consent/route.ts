@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
       .from('profiles')
       .update({
         consent_given: Boolean(consent_given),
+        consent_accepted_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id)
