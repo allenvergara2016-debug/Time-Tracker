@@ -286,6 +286,7 @@ export interface AppSettings {
   undertime_minutes_basis?: 'exact' | '15_min_block';
   require_overtime_approval?: boolean;
   overtime_rounding_rule?: 'exact' | '30_min_block' | '1_hour_block';
+  tardiness_overtime_rule?: 'no_offset' | 'require_full_hours' | 'offset_late';
   enable_special_day_rates?: boolean;
   updated_at: string;
 }
