@@ -1876,7 +1876,7 @@ export default function AdminDashboardPage() {
                     </label>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <div>
                       <label className="block text-slate-300 font-medium mb-1 text-xs">Standard Hours Per Day</label>
                       <input
@@ -1922,6 +1922,28 @@ export default function AdminDashboardPage() {
                         <option value="1_hour_block">Full 1-Hour Blocks (Must render at least 1 hour)</option>
                       </select>
                       <span className="text-[10px] text-slate-500">e.g. 1-hour block requires rendering at least 60 mins of OT</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 font-medium mb-1 text-xs">Late vs Overtime Policy</label>
+                      <select
+                        value={settings.tardiness_overtime_rule || 'no_offset'}
+                        onChange={(e) =>
+                          setAppSettings({ ...settings, tardiness_overtime_rule: e.target.value as any })
+                        }
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs"
+                      >
+                        <option value="no_offset">Strict Schedule (No Offset - Labor Standard)</option>
+                        <option value="require_full_hours">Require 8 Regular Hours Before Overtime</option>
+                        <option value="offset_late">Auto-Offset Late with Post-Shift Work (Make-up Time)</option>
+                      </select>
+                      <span className="text-[10px] text-slate-500">
+                        {settings.tardiness_overtime_rule === 'offset_late'
+                          ? 'Staying late recovers morning late minutes first (no pay deduction); excess is Overtime'
+                          : settings.tardiness_overtime_rule === 'require_full_hours'
+                          ? 'Overtime only starts after completing 8 regular hours; 5pm-6pm is not OT if 1 hr late'
+                          : 'Morning late is deducted; work past shift end is paid as Overtime (Standard)'}
+                      </span>
                     </div>
                   </div>
 

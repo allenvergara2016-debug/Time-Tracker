@@ -65,6 +65,7 @@ export async function PUT(req: NextRequest) {
       undertime_minutes_basis,
       require_overtime_approval,
       overtime_rounding_rule,
+      tardiness_overtime_rule,
       enable_special_day_rates,
     } = body;
 
@@ -98,6 +99,7 @@ export async function PUT(req: NextRequest) {
       undertime_minutes_basis: undertime_minutes_basis ?? existingSettings?.undertime_minutes_basis ?? 'exact',
       require_overtime_approval: require_overtime_approval !== undefined ? Boolean(require_overtime_approval) : (existingSettings?.require_overtime_approval ?? true),
       overtime_rounding_rule: overtime_rounding_rule ?? existingSettings?.overtime_rounding_rule ?? 'exact',
+      tardiness_overtime_rule: tardiness_overtime_rule ?? existingSettings?.tardiness_overtime_rule ?? 'no_offset',
       enable_special_day_rates: enable_special_day_rates !== undefined ? Boolean(enable_special_day_rates) : (existingSettings?.enable_special_day_rates ?? false),
       updated_at: new Date().toISOString(),
     };

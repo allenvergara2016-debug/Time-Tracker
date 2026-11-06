@@ -138,6 +138,7 @@ export async function GET(req: NextRequest) {
     const undertimeMinutesBasis = appSettings?.undertime_minutes_basis || 'exact'; // 'exact' | '15_min_block'
     const requireOvertimeApproval = appSettings?.require_overtime_approval !== false; // default true
     const overtimeRoundingRule = appSettings?.overtime_rounding_rule || 'exact'; // 'exact' | '30_min_block'
+    const tardinessOvertimeRule = appSettings?.tardiness_overtime_rule || 'no_offset'; // 'no_offset' | 'require_full_hours' | 'offset_late'
     const enableSpecialDayRates = Boolean(appSettings?.enable_special_day_rates);
 
     // If caller is non-admin and rates are not visible, hide rates
@@ -295,7 +296,28 @@ export async function GET(req: NextRequest) {
           }
 
           const dynamicShiftOtMins = preShiftOtMins + postShiftOtMins;
-          otMinutes = Math.max(log.overtime_minutes || 0, dynamicShiftOtMins);
+          let baseOtMinutes = Math.max(log.overtime_minutes || 0, dynamicShiftOtMins);
+
+          // Management Tardiness & Overtime Policy
+          if (tardinessOvertimeRule === 'offset_late') {
+            // Auto-offset morning tardiness with post-shift work (Make-up time)
+            if (lateMins > 0 && postShiftOtMins > 0) {
+              const offsetMins = Math.min(lateMins, postShiftOtMins);
+              lateMins = lateMins - offsetMins;
+              baseOtMinutes = Math.max(0, baseOtMinutes - offsetMins);
+            }
+          } else if (tardinessOvertimeRule === 'require_full_hours') {
+            // Overtime only starts after completing full hoursPerDay of work (e.g. 8.0 hours)
+            // If total hours worked <= hoursPerDay, no overtime pay is accrued
+            if (hoursWorked <= hoursPerDay) {
+              baseOtMinutes = 0;
+            } else {
+              const excessMinutes = Math.round((hoursWorked - hoursPerDay) * 60);
+              baseOtMinutes = Math.min(baseOtMinutes, excessMinutes);
+            }
+          }
+
+          otMinutes = baseOtMinutes;
 
           // Overtime minutes rounding rule (exact / 30-min block / 1-hour block)
           let computedOtMinutes = otMinutes;
