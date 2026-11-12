@@ -48,6 +48,7 @@ import PasskeyManager from '@/components/auth/PasskeyManager';
 import AppLogo from '@/components/ui/AppLogo';
 import InstallAppDrawerButton from '@/components/pwa/InstallAppDrawerButton';
 import StatusDrilldownModal, { DrilldownStatus } from '@/components/admin/StatusDrilldownModal';
+import PunctualityChart from '@/components/admin/PunctualityChart';
 import {
   Profile,
   Location,
@@ -1170,6 +1171,13 @@ export default function AdminDashboardPage() {
                   </div>
                 </button>
               </div>
+
+              {/* Attendance & Punctuality Analytics Graph (Pie & Bar toggle) */}
+              <PunctualityChart
+                counts={counts}
+                attendanceLogs={attendanceLogs}
+                onDrilldown={(status) => setDrilldownStatus(status)}
+              />
 
               {/* Today's Attendance Table */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-sm">
